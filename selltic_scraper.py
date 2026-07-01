@@ -256,18 +256,24 @@ def load_config() -> dict:
     return {}
 
 
-def save_config(data: dict):
-    """Zapisuje config.json (np. klucz API) do bucketa GCS, a jeśli GCS nie jest skonfigurowany - do pliku lokalnego."""
+def save_config(data: dict) -> bool:
+    """Zapisuje config.json (np. klucz API) do bucketa GCS, a jeśli GCS nie jest skonfigurowany - do pliku lokalnego.
+    Zwraca True jeśli zapis się powiódł, False w razie błędu (np. problem z GCS)."""
     if GCS_BUCKET:
         try:
             client = _gcs_client()
             blob = client.bucket(GCS_BUCKET).blob(CONFIG_FILE)
             blob.upload_from_string(json.dumps(data, ensure_ascii=False, indent=2), content_type="application/json")
+            return True
         except Exception as e:
             st.sidebar.error(f"Błąd zapisu config.json do GCS: {e}")
-        return
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+            return False
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
 
 
 # ── Scoring stron WWW ──────────────────────────────────────────────────────────
@@ -1088,15 +1094,17 @@ elif page == "⚙️ Ustawienia":
         if env_api_key:
             st.success("✅ Klucz API wczytany ze zmiennej środowiskowej `GOOGLE_PLACES_API_KEY`")
         else:
-            def _save_manual_api_key():
-                save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
-
             st.text_input(
                 "Google Places API Key", type="password", placeholder="AIza...",
                 key="manual_api_key",
-                on_change=_save_manual_api_key,
-                help="Zapisywany trwale (GCS/config.json) — przetrwa restart kontenera. Na produkcji możesz zamiast tego ustawić zmienną środowiskową GOOGLE_PLACES_API_KEY.",
+                help="Zapisywany trwale (GCS/config.json) po kliknięciu 'Zapisz klucz' — przetrwa restart kontenera. Na produkcji możesz zamiast tego ustawić zmienną środowiskową GOOGLE_PLACES_API_KEY.",
             )
+            if st.button("💾 Zapisz klucz", key="save_manual_api_key"):
+                ok = save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
+                if ok:
+                    st.success("✅ Klucz API zapisany trwale.")
+                else:
+                    st.error("❌ Nie udało się zapisać klucza API.")
 
     with st.container(border=True):
         st.markdown("#### 🔗 Integracja z CRM")
