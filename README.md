@@ -70,6 +70,56 @@ serwis na `europe-west1`.
 
 ---
 
+## 6. NOWE: headless webhook backend (architektura bez Streamlit UI)
+
+Obok istniejącej appki Streamlit (niezmienionej, dalej działa jak dotychczas)
+dochodzi **druga, osobna usługa Cloud Run**: `webhook_server.py` (FastAPI).
+CRM (selltic-crm) staje się jedynym interfejsem użytkownika — nowa zakładka
+"Scraper" w CRM tworzy zadania w Supabase i woła webhook poniżej, który robi
+scraping i zapisuje wyniki bezpośrednio do Supabase (bez pośredniego API).
+
+**Nic w starym flow nie zostało usunięte** — stary endpoint `/api/prospecting/import`
+po stronie CRM i stara appka Streamlit nadal działają równolegle, do potwierdzenia
+że nowy flow działa end-to-end.
+
+### 6.1 Nowe pliki
+- `scraper_core.py` — logika scrapowania/scoringu bez Streamlit (współdzielona)
+- `supabase_backend.py` — klient Supabase + wczytywanie `scraper_config`
+- `webhook_server.py` — FastAPI, endpoint `POST /webhook/scrape` + `GET /healthz`
+- `Dockerfile.webhook`, `cloudbuild.webhook.yaml` — build/deploy tej usługi
+
+### 6.2 Deploy jako osobny serwis Cloud Run
+1. **Cloud Run** → **Create Service** → **Continuously deploy from a repository**,
+   ten sam repo/branch co stara appka.
+2. Build type: **Dockerfile**, ale wskaż `Dockerfile.webhook` jako plik Dockerfile
+   (w ustawieniach source repo Cloud Build) — **NIE** `Dockerfile` (to stara appka).
+3. Nazwa serwisu np. `selltic-scraper-webhook` (musi być inna niż istniejący serwis).
+4. **CPU allocation: "CPU is always allocated"** (`--no-cpu-throttling`) —
+   **wymagane**, bo webhook odpowiada 202 natychmiast i kontynuuje scraping w tle
+   (FastAPI BackgroundTasks) już po wysłaniu odpowiedzi. Bez tego Cloud Run może
+   zamrozić CPU zaraz po odpowiedzi i przetwarzanie w tle się nie dokończy.
+5. Authentication: **"Allow unauthenticated invocations"** — autoryzacja jest
+   na poziomie aplikacji (nagłówek `Authorization: Bearer <SCRAPER_WEBHOOK_SECRET>`),
+   tak samo jak stary `SCRAPER_IMPORT_KEY`.
+6. Zmienne środowiskowe (**Variables & Secrets**):
+   - `SUPABASE_URL` — **musi być identyczne** jak `NEXT_PUBLIC_SUPABASE_URL` w CRM (Vercel)
+   - `SUPABASE_SERVICE_ROLE_KEY` — **musi być identyczne** jak `SUPABASE_SERVICE_ROLE_KEY` w CRM (Vercel)
+   - `SCRAPER_WEBHOOK_SECRET` — długi losowy string, **musi być identyczny** jak
+     `SCRAPER_WEBHOOK_SECRET` w CRM (Vercel)
+   - `GCS_BUCKET` — ten sam bucket co stara appka (kopia zapasowa CSV per zadanie)
+   - `GOOGLE_PLACES_API_KEY` — opcjonalny fallback, jeśli `scraper_config.google_places_api_key`
+     w Supabase jest puste
+7. Service account: ta sama rola `Storage Object Admin` na buckecie co stara appka.
+
+### 6.3 Uwaga o requirements.txt
+`requirements.txt` jest współdzielony między obiema usługami (Streamlit +
+FastAPI/Supabase razem) dla prostoty — każdy obraz instaluje trochę
+niepotrzebnych zależności drugiej usługi. Jeśli to problem (rozmiar obrazu,
+czas builda), można to później rozdzielić na `requirements-streamlit.txt` /
+`requirements-webhook.txt`.
+
+---
+
 ## Dodatkowe uwagi
 - **Bezpieczeństwo hasła**: to jest bramka na poziomie aplikacji (porównanie stringów),
   wystarczająca żeby przypadkowi ludzie nie weszli na scraper, ale to nie jest pełne

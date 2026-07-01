@@ -1,0 +1,46 @@
+# Cloud Build config for the new headless webhook backend (webhook_server.py).
+# Deploys as a SEPARATE Cloud Run service from the old Streamlit app, so the
+# old UI keeps running unchanged until the new flow is confirmed end-to-end.
+#
+# --no-cpu-throttling ("CPU always allocated") is required: the webhook
+# responds 202 immediately and keeps scraping in a FastAPI BackgroundTask
+# after the response is sent — without this flag Cloud Run may freeze the
+# instance's CPU right after the response and the background work will stall.
+#
+# TODO: fill in YOUR_PROJECT_ID (and adjust _REGION/_SERVICE below if needed).
+substitutions:
+  _REGION: europe-central2
+  _SERVICE: selltic-scraper-webhook
+
+images:
+  - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-f"
+      - "Dockerfile.webhook"
+      - "-t"
+      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "."
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+
+  - name: "gcr.io/google-cloud-sdk/slim"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "${_SERVICE}"
+      - "--image=europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--no-cpu-throttling"
+      - "--allow-unauthenticated"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
