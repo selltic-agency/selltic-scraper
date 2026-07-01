@@ -40,7 +40,8 @@ gcloud storage buckets create gs://selltic-scraper-data --location=europe-centra
    - `GCS_BUCKET` = selltic-scraper-data
    - `GOOGLE_PLACES_API_KEY` = Twój klucz Google Places API (eliminuje wklejanie go ręcznie przy każdej sesji)
    - `CRM_API_BASE_URL` = adres Twojego CRM, np. `https://crm.selltic-agency.pl` (bez ukośnika na końcu)
-   - `SCRAPER_IMPORT_KEY` = długi losowy string — **musi być identyczny** jak `SCRAPER_IMPORT_KEY` ustawiony w Vercel po stronie CRM
+   - `SCRAPER_IMPORT_KEY` = długi losowy string — **musi być identyczny** jak `SCRAPER_IMPORT_KEY`/`X-API-Key` ustawiony po stronie CRM
+   - `EMBED_TOKEN` = długi losowy string — opcjonalny; jeśli ustawiony, otwarcie appki z `?token=<EMBED_TOKEN>` w URL (np. z iframe/reverse proxy w CRM) pomija ekran logowania, bo CRM już uwierzytelnił użytkownika
 8. W **Security → Service account** upewnij się, że konto usługi ma rolę
    `Storage Object Admin` na utworzonym buckecie (żeby mógł zapisywać/czytać CSV).
 9. Kliknij **Create** — Cloud Build zbuduje obraz z Dockerfile i wdroży na Cloud Run.
