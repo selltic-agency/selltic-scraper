@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+baza_leadow.csv
+historia_zapytan.json
+scoring_weights.json

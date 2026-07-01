@@ -12,6 +12,104 @@ from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Selltic Scraper", page_icon="🔍", layout="wide")
 
+# ── Material Design theming ────────────────────────────────────────────────────
+
+MATERIAL_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+:root {
+    --md-primary: #1a73e8;
+    --md-primary-dark: #0b57d0;
+    --md-on-primary: #ffffff;
+    --md-surface: #ffffff;
+    --md-bg: #f1f3f4;
+    --md-outline: #dadce0;
+    --md-on-surface: #202124;
+    --md-on-surface-variant: #5f6368;
+}
+
+html, body, [class*="css"] {
+    font-family: 'Roboto', 'Segoe UI', sans-serif;
+}
+
+.stApp {
+    background-color: var(--md-bg);
+}
+
+h1, h2, h3, h4 {
+    font-weight: 500 !important;
+    color: var(--md-on-surface);
+}
+
+section[data-testid="stSidebar"] {
+    background-color: var(--md-surface);
+    border-right: 1px solid var(--md-outline);
+}
+
+.md-brand {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: var(--md-on-surface);
+    padding: 0.25rem 0 0 0;
+}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] label {
+    padding: 0.5rem 0.75rem;
+    border-radius: 20px;
+    margin-bottom: 0.15rem;
+}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+    background-color: #f1f3f4;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: var(--md-surface);
+    border-radius: 12px !important;
+    border: 1px solid var(--md-outline) !important;
+    box-shadow: 0 1px 2px rgba(60,64,67,.15), 0 1px 3px rgba(60,64,67,.10);
+    padding: 0.25rem 0.5rem;
+}
+
+div[data-testid="stExpander"] {
+    background-color: var(--md-surface);
+    border-radius: 12px;
+    border: 1px solid var(--md-outline);
+}
+
+div.stButton > button, div.stDownloadButton > button {
+    border-radius: 20px;
+    font-weight: 500;
+    border: 1px solid var(--md-outline);
+}
+
+div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
+    background-color: var(--md-primary);
+    border: none;
+    color: var(--md-on-primary);
+}
+
+div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind="primary"]:hover {
+    background-color: var(--md-primary-dark);
+}
+
+div[data-testid="stMetric"] {
+    background-color: var(--md-surface);
+    border-radius: 12px;
+    border: 1px solid var(--md-outline);
+    padding: 0.75rem 1rem;
+}
+
+div[data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--md-outline);
+}
+</style>
+"""
+st.markdown(MATERIAL_CSS, unsafe_allow_html=True)
+
 COLUMNS = ["place_id", "Nazwa", "Telefon", "Strona WWW", "Adres", "Ocena", "Liczba opinii", "Status", "Branża", "Miasto", "Data dodania", "Website Status", "Lead Score"]
 EXPORT_COLUMNS = ["Nazwa", "Telefon", "Strona WWW", "Adres", "Ocena", "Liczba opinii", "Status", "Branża", "Miasto", "Data dodania", "Website Status", "Lead Score"]
 MASTER_FILE = "baza_leadow.csv"
@@ -433,35 +531,41 @@ def to_excel(df: pd.DataFrame) -> BytesIO:
 # UI
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.title("🔍 Selltic – Google Maps Scraper")
+env_api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+api_key = env_api_key if env_api_key else st.session_state.get("manual_api_key", "")
+
+PAGES = [
+    "🚀 Scraper",
+    "📦 Baza leadów",
+    "📋 Historia zapytań",
+    "🧪 Test scoringu",
+    "⚙️ Konfiguracja scoringu",
+    "🔧 Ustawienia",
+]
 
 with st.sidebar:
-    st.header("⚙️ Konfiguracja")
-    env_api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+    st.markdown('<div class="md-brand">🔍 Selltic Scraper</div>', unsafe_allow_html=True)
+    st.caption("Google Maps Scraper + CRM")
+    st.divider()
+    page = st.radio("Nawigacja", PAGES, label_visibility="collapsed", key="nav_page")
+    st.divider()
     if env_api_key:
-        api_key = env_api_key
-        st.success("✅ Klucz Google Places API wczytany ze zmiennej środowiskowej")
+        st.success("✅ Klucz API ze środowiska")
+    elif api_key:
+        st.info("🔑 Klucz API ustawiony ręcznie")
     else:
-        api_key = st.text_input("Google Places API Key", type="password", placeholder="AIza...")
-    st.divider()
+        st.warning("⚠️ Brak klucza Google Places API")
     if CRM_ENABLED:
-        st.success("✅ Połączono z CRM (auto-import leadów)")
+        st.success("✅ CRM połączony")
     else:
-        st.info("ℹ️ CRM nieskonfigurowany — leady zostają tylko lokalnie/w GCS")
-    st.divider()
-    master_df = load_master()
-    st.metric("📦 Leadów w bazie", len(master_df))
-    st.metric("📋 Wykonanych zapytań", len(load_history()))
-    st.divider()
-    st.markdown("💡 **$200 free/miesiąc** ≈ 4 000 firm")
+        st.info("ℹ️ CRM nieskonfigurowany")
+    st.caption("Pełne ustawienia → zakładka 🔧 Ustawienia")
 
-tab_scraper, tab_baza, tab_historia, tab_test_scoring, tab_konfig_scoring = st.tabs(
-    ["🚀 Scraper", "📦 Baza leadów", "📋 Historia zapytań", "🧪 Test scoringu", "⚙️ Konfiguracja scoringu"]
-)
+st.title("🔍 Selltic – Google Maps Scraper")
 
 
-# ── TAB 1: Scraper ────────────────────────────────────────────────────────────
-with tab_scraper:
+# ── Strona: Scraper ───────────────────────────────────────────────────────────
+if page == "🚀 Scraper":
     history = load_history()
     master_ids = set(load_master()["place_id"].tolist())
 
@@ -689,8 +793,8 @@ with tab_scraper:
                 st.error("❌ Nadal nie udało się połączyć z CRM.")
 
 
-# ── TAB 2: Baza leadów ────────────────────────────────────────────────────────
-with tab_baza:
+# ── Strona: Baza leadów ───────────────────────────────────────────────────────
+elif page == "📦 Baza leadów":
     df_master = load_master()
 
     if df_master.empty:
@@ -750,8 +854,8 @@ with tab_baza:
                 st.rerun()
 
 
-# ── TAB 3: Historia zapytań ───────────────────────────────────────────────────
-with tab_historia:
+# ── Strona: Historia zapytań ──────────────────────────────────────────────────
+elif page == "📋 Historia zapytań":
     history = load_history()
 
     if not history:
@@ -782,8 +886,8 @@ with tab_historia:
             st.rerun()
 
 
-# ── TAB 4: Test scoringu ──────────────────────────────────────────────────────
-with tab_test_scoring:
+# ── Strona: Test scoringu ─────────────────────────────────────────────────────
+elif page == "🧪 Test scoringu":
     st.markdown("Sprawdź jak `score_website()` ocenia konkretną firmę, zanim zaufasz algorytmowi przy masowym scrapingu.")
 
     tc1, tc2, tc3 = st.columns([2, 1, 1])
@@ -816,8 +920,8 @@ with tab_test_scoring:
             st.json(breakdown)
 
 
-# ── TAB 5: Konfiguracja scoringu ──────────────────────────────────────────────
-with tab_konfig_scoring:
+# ── Strona: Konfiguracja scoringu ─────────────────────────────────────────────
+elif page == "⚙️ Konfiguracja scoringu":
     st.markdown("Dostosuj wagi punktowe algorytmu scoringu. Zmiany zapisane tutaj obowiązują od razu w kolejnych scrapingach oraz w zakładce **Test scoringu**.")
 
     current_weights = load_weights()
@@ -908,3 +1012,35 @@ with tab_konfig_scoring:
         st.markdown(f"- {line}")
     with st.expander("Surowy breakdown (JSON)", expanded=False):
         st.json(preview_breakdown)
+
+
+# ── Strona: Ustawienia ─────────────────────────────────────────────────────────
+elif page == "🔧 Ustawienia":
+    st.caption("Konfiguracja klucza API, integracji z CRM oraz trwałości danych — pogrupowana w karty.")
+
+    with st.container(border=True):
+        st.markdown("#### 🔑 Google Places API")
+        if env_api_key:
+            st.success("✅ Klucz API wczytany ze zmiennej środowiskowej `GOOGLE_PLACES_API_KEY`")
+        else:
+            st.text_input(
+                "Google Places API Key", type="password", placeholder="AIza...",
+                key="manual_api_key",
+                help="Wykorzystywany tylko w tej sesji. Na produkcji ustaw zmienną środowiskową GOOGLE_PLACES_API_KEY.",
+            )
+
+    with st.container(border=True):
+        st.markdown("#### 🔗 Integracja z CRM")
+        if CRM_ENABLED:
+            st.success("✅ Połączono z CRM — leady po scrapingu są automatycznie importowane")
+            st.caption(f"`CRM_API_BASE_URL` = {CRM_API_BASE_URL}")
+        else:
+            st.info("ℹ️ CRM nieskonfigurowany — leady zostają tylko lokalnie/w GCS. Ustaw `CRM_API_BASE_URL` i `SCRAPER_IMPORT_KEY`.")
+
+    with st.container(border=True):
+        st.markdown("#### 📦 Trwałość danych i statystyki")
+        gc1, gc2, gc3 = st.columns(3)
+        gc1.metric("Leadów w bazie", len(load_master()))
+        gc2.metric("Wykonanych zapytań", len(load_history()))
+        gc3.metric("GCS bucket", GCS_BUCKET if GCS_BUCKET else "brak")
+        st.caption("💡 **$200 free/miesiąc** ≈ 4 000 firm")
