@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from scraper_core import gcs_upload_bytes, place_details, score_website, text_search
+from scraper_core import gcs_upload_bytes, place_details, score_website, text_search_page
 from supabase_backend import (
     get_owner_id,
     get_supabase,
@@ -89,13 +89,29 @@ def webhook_scrape(
 
 def process_batch(job_ids: list[str]):
     db = get_supabase()
-    owner_id = get_owner_id()
-    cfg = load_scraper_config(owner_id)
-    api_key = resolve_api_key(cfg)
-    weights = scoring_weights_from_config(cfg)
-    max_results = int(cfg.get("max_results_per_query") or 60)
-    delay_s = float(cfg.get("request_delay_ms") or 500) / 1000.0
-    max_strony = min(3, math.ceil(max_results / 20))
+
+    # Setup (owner, config, klucz API) PRZED pętlą — jeśli tu poleci wyjątek
+    # (np. Supabase chwilowo niedostępny), oznaczamy WSZYSTKIE zadania z paczki
+    # jako błąd, zamiast zostawiać je wiszące w "pending" bez śladu.
+    try:
+        owner_id = get_owner_id()
+        cfg = load_scraper_config(owner_id)
+        api_key = resolve_api_key(cfg)
+        weights = scoring_weights_from_config(cfg)
+        max_results = int(cfg.get("max_results_per_query") or 60)
+        delay_s = float(cfg.get("request_delay_ms") or 500) / 1000.0
+        max_strony = min(3, math.ceil(max_results / 20))
+    except Exception as e:
+        try:
+            db.table("scrape_jobs").update({
+                "status": "error",
+                "error_message": f"Nie udało się przygotować scrapowania: {str(e)[:1500]}",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_step": None,
+            }).in_("id", job_ids).execute()
+        except Exception as e2:
+            print(f"[process_batch] Nie udało się zapisać błędu setupu: {e2}")
+        return
 
     for job_id in job_ids:
         try:
@@ -139,59 +155,84 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
     count = 0          # ile leadów faktycznie zapisano (dla results_count na żywo)
     next_token = None
     for page_nr in range(max_strony):
-        if page_nr > 0 and next_token:
-            time.sleep(2)  # token Google Places staje się aktywny z opóźnieniem
-
         _set_progress(db, job_id, current_step=f"Pobieranie strony {page_nr + 1}/{max_strony}")
 
-        data = text_search(query, api_key, next_token if page_nr > 0 else None)
+        page_token = next_token if page_nr > 0 else None
+        data = text_search_page(query, api_key, page_token)
         api_status = data.get("status")
         if api_status == "REQUEST_DENIED":
             raise RuntimeError(f"REQUEST_DENIED — sprawdź klucz API i rozliczenia: {data.get('error_message', '')}")
-        if api_status in ("ZERO_RESULTS",):
+        if api_status == "ZERO_RESULTS":
             break
+        if api_status == "INVALID_REQUEST":
+            # Na kolejnych stronach INVALID_REQUEST po ponowieniach oznacza, że
+            # next_page_token nie aktywował się w rozsądnym czasie — kończymy
+            # stronicowanie zachowując dotychczasowe wyniki (zadanie = sukces),
+            # zamiast oznaczać całe zadanie jako błąd.
+            if page_token:
+                break
+            raise RuntimeError(
+                "INVALID_REQUEST — Google odrzucił zapytanie dla tego słowa "
+                f"kluczowego i lokalizacji: {data.get('error_message', '')}"
+            )
         if api_status != "OK":
             raise RuntimeError(f"Google Places API status={api_status}: {data.get('error_message', '')}")
 
         for place in data.get("results", []):
-            pid = place["place_id"]
-            place_name = place.get("name", "") or ""
-            _set_progress(db, job_id, current_step=f"Pobieranie szczegółów: {place_name}"[:400])
+            # Pojedyncza firma nie może wywrócić całego zadania — błąd na jednej
+            # (np. chwilowy błąd Details API) logujemy i idziemy dalej. Leady już
+            # zapisane zostają; results_count/status pozostają spójne.
+            try:
+                pid = place.get("place_id")
+                if not pid:
+                    continue
+                place_name = place.get("name", "") or ""
+                _set_progress(db, job_id, current_step=f"Pobieranie szczegółów: {place_name}"[:400])
 
-            details = place_details(pid, api_key)
-            time.sleep(delay_s)
+                try:
+                    details = place_details(pid, api_key)
+                except Exception as det_err:  # noqa: BLE001 — degradujemy się do danych z text search
+                    print(f"[process_job] Details API zawiodło dla {pid} ({job_id}): {det_err}")
+                    details = {}
+                time.sleep(delay_s)
 
-            website = details.get("website", "") or None
-            rating = details.get("rating")
-            review_count = details.get("user_ratings_total")
-            score, website_status, breakdown = score_website(website, rating, review_count, weights)
+                # Website/telefon są tylko w Place Details; ocena/opinie/status/adres
+                # mają fallback do podsumowania z text search, gdy Details zawiedzie.
+                website = (details.get("website") or "").strip() or None
+                rating = details.get("rating", place.get("rating"))
+                review_count = details.get("user_ratings_total", place.get("user_ratings_total"))
+                business_status = details.get("business_status") or place.get("business_status") or None
+                score, website_status, breakdown = score_website(website, rating, review_count, weights)
 
-            row = {
-                "owner": owner_id,
-                "job_id": job_id,
-                "place_id": pid,
-                "business_name": details.get("name", "") or place_name,
-                "phone": details.get("formatted_phone_number") or None,
-                "address": details.get("formatted_address") or None,
-                "website": website,
-                "rating": rating,
-                "review_count": review_count,
-                "business_status": details.get("business_status") or None,
-                "score": score,
-                "score_breakdown": breakdown,
-                "website_status": website_status,
-                "source_keyword": keyword,
-                "source_location": location,
-                "status": "new",
-                "scraped_at": datetime.now(timezone.utc).isoformat(),
-            }
+                row = {
+                    "owner": owner_id,
+                    "job_id": job_id,
+                    "place_id": pid,
+                    "business_name": details.get("name") or place_name or "(bez nazwy)",
+                    "phone": details.get("formatted_phone_number") or None,
+                    "address": details.get("formatted_address") or place.get("formatted_address") or None,
+                    "website": website,
+                    "rating": rating,
+                    "review_count": review_count,
+                    "business_status": business_status,
+                    "score": score,
+                    "score_breakdown": breakdown,
+                    "website_status": website_status,
+                    "source_keyword": keyword,
+                    "source_location": location,
+                    "status": "new",
+                    "scraped_at": datetime.now(timezone.utc).isoformat(),
+                }
 
-            # Zapis od razu po zescrapowaniu — lead pojawia się w CRM na żywo,
-            # a nie dopiero po zakończeniu całego zadania.
-            db.table("scraped_leads").upsert([row], on_conflict="owner,place_id").execute()
-            rows.append(row)
-            count += 1
-            _set_progress(db, job_id, results_count=count)
+                # Zapis od razu po zescrapowaniu — lead pojawia się w CRM na żywo,
+                # a nie dopiero po zakończeniu całego zadania.
+                db.table("scraped_leads").upsert([row], on_conflict="owner,place_id").execute()
+                rows.append(row)
+                count += 1
+                _set_progress(db, job_id, results_count=count)
+            except Exception as place_err:  # noqa: BLE001
+                print(f"[process_job] Pominięto firmę w zadaniu {job_id}: {place_err}")
+                continue
 
         next_token = data.get("next_page_token")
         if not next_token:

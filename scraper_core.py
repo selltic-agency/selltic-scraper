@@ -9,6 +9,8 @@ Nie ma tu żadnych efektów ubocznych przy imporcie poza odczytem GCS_BUCKET
 ze zmiennej środowiskowej.
 """
 import os
+import time
+
 import requests
 
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
@@ -72,6 +74,11 @@ def score_website(url: str, rating, review_count, weights: dict) -> tuple[int, s
     w = weights
     breakdown = {}
 
+    # URL bywa pustym stringiem lub samą spacją ("website" z Google Places) —
+    # traktujemy to jak brak strony, a nie jak domenę do sprawdzenia.
+    if isinstance(url, str):
+        url = url.strip()
+
     if not url:
         website_status = "brak"
         score_website_pts = int(w["brak_strony"])
@@ -134,6 +141,40 @@ def text_search(query, api_key, page_token=None):
     if page_token:
         params["pagetoken"] = page_token
     return requests.get(url, params=params, timeout=10).json()
+
+
+def text_search_page(query, api_key, page_token=None, *, sleep=time.sleep):
+    """
+    Pobiera jedną stronę wyników text search, odporny na dwie typowe przyczyny
+    fałszywych błędów przy stronicowaniu:
+
+    1. INVALID_REQUEST po podaniu next_page_token — token Google Places staje się
+       aktywny z ZMIENNYM opóźnieniem (zwykle ~2 s, czasem więcej). Zapytanie zbyt
+       wcześnie zwraca INVALID_REQUEST, mimo że słowo kluczowe i lokalizacja są
+       poprawne (realna przyczyna błędu np. dla "fizjoterapeuta Wrocław", które ma
+       wiele stron wyników). Ponawiamy z narastającym odstępem zamiast zgłaszać
+       błąd zapytania.
+    2. OVER_QUERY_LIMIT — chwilowy limit tempa; ponawiamy po krótkiej pauzie.
+
+    Pierwsza strona (page_token=None) NIE jest ponawiana na INVALID_REQUEST — tam
+    to naprawdę oznacza nieprawidłowe zapytanie i decyzję o błędzie podejmuje caller.
+
+    `sleep` jest wstrzykiwalny, żeby testy nie musiały realnie czekać.
+    """
+    if not page_token:
+        data = text_search(query, api_key, None)
+        if data.get("status") == "OVER_QUERY_LIMIT":
+            sleep(3)
+            data = text_search(query, api_key, None)
+        return data
+
+    data = {}
+    for delay in (2, 3, 4, 5, 6):
+        sleep(delay)  # daj tokenowi czas na aktywację
+        data = text_search(query, api_key, page_token)
+        if data.get("status") not in ("INVALID_REQUEST", "OVER_QUERY_LIMIT"):
+            return data
+    return data  # wyczerpane ponowienia — decyzję o błędzie podejmuje caller
 
 
 def place_details(place_id, api_key):
