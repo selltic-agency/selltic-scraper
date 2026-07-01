@@ -53,6 +53,14 @@ def healthz():
     return {"status": "ok"}
 
 
+# TEMPORARY DEBUG ROUTE — remove once the /healthz 404 issue is confirmed fixed.
+# Lets us verify from outside exactly which routes are registered in the
+# running container, to rule out a stale deploy vs. an infra-level interception.
+@app.get("/debug-routes")
+def debug_routes():
+    return {"routes": [getattr(r, "path", str(r)) for r in app.routes]}
+
+
 @app.post("/webhook/scrape")
 def webhook_scrape(
     payload: ScrapeWebhookRequest,
