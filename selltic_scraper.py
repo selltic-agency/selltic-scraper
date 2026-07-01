@@ -162,8 +162,12 @@ def score_website(url: str, rating, review_count, weights: dict = None) -> tuple
         website_status = "brak"
         score_a = w["brak_strony"]
     else:
+        # Uzupełnij brakujący schemat (np. "przyklad.pl" -> "https://przyklad.pl"),
+        # inaczej requests rzuca MissingSchema i strona zawsze wygląda na "nie_dziala".
+        if "://" not in url:
+            url = "https://" + url
         try:
-            resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
             elapsed = resp.elapsed.total_seconds()
             html = resp.text[:20000] if resp.ok else ""
             if not resp.ok:
