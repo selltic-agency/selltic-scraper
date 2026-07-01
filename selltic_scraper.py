@@ -129,19 +129,19 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .sl-dot-red { background-color: #EF4444; }
 .sl-dot-gray { background-color: #B9BFC9; }
 
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: var(--sl-surface);
+div[data-testid="stVerticalBlockBorderWrapper"],
+div[data-testid="stExpander"],
+div[data-testid="stMetric"],
+div[data-testid="stDataFrame"],
+div[data-testid="stDataEditor"] {
+    background-color: var(--sl-surface) !important;
     border-radius: 14px !important;
     border: 1px solid var(--sl-border) !important;
     box-shadow: none !important;
-    padding: 0.5rem 0.75rem;
 }
 
-div[data-testid="stExpander"] {
-    background-color: var(--sl-surface);
-    border-radius: 14px;
-    border: 1px solid var(--sl-border);
-    box-shadow: none;
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    padding: 0.5rem 0.75rem;
 }
 
 div.stButton > button, div.stDownloadButton > button {
@@ -166,26 +166,36 @@ div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind=
 }
 
 div[data-testid="stMetric"] {
-    background-color: var(--sl-surface);
-    border-radius: 14px;
-    border: 1px solid var(--sl-border);
-    box-shadow: none;
     padding: 1rem 1.25rem;
 }
 
-div[data-testid="stDataFrame"] {
-    border-radius: 14px;
+div[data-testid="stDataFrame"],
+div[data-testid="stDataEditor"] {
     overflow: hidden;
-    border: 1px solid var(--sl-border);
-    box-shadow: none;
 }
 
 div[data-testid="stTextInput"] input,
 div[data-testid="stNumberInput"] input,
 textarea,
 div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-    border-radius: 8px !important;
+    border-radius: 10px !important;
     border-color: var(--sl-border) !important;
+    background-color: #ffffff !important;
+}
+
+/* Ukrycie dodatkowych obramowań w tabelach Streamlit */
+[data-testid="stDataFrame"] [data-testid="stTable"] {
+    border: none !important;
+}
+
+/* Dopasowanie nagłówków tabeli */
+[data-testid="stDataFrame"] th, [data-testid="stDataEditor"] th {
+    background-color: #F9FAFB !important;
+    color: var(--sl-text-muted) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.025em;
 }
 
 .sl-pill {
@@ -463,7 +473,10 @@ CRM_ENABLED = bool(CRM_API_BASE_URL and SCRAPER_IMPORT_KEY)
 
 
 def crm_test_connection() -> tuple[bool, str]:
-    """Sprawdza połączenie z CRM wywołując existing-ids z pustą listą place_id. Zwraca (ok, opis)."""
+    """
+    Sprawdza połączenie z CRM wywołując existing-ids z pustą listą place_id. Zwraca (ok, opis).
+    UWAGA: Ten test sprawdza tylko łączność i klucz API, nie waliduje schematu importu.
+    """
     if not CRM_ENABLED:
         return False, "CRM nieskonfigurowany (brak CRM_API_BASE_URL / SCRAPER_IMPORT_KEY)."
     try:
@@ -498,51 +511,14 @@ def crm_check_existing(place_ids: list[str]) -> set[str]:
     return set()
 
 
-def crm_import_batch(rows: list[dict]) -> dict | None:
-    """Wysyła paczkę leadów do CRM. Zwraca odpowiedź albo None przy błędzie/braku konfiguracji."""
-    if not CRM_ENABLED or not rows:
-        return None
-    payload = [
-        {
-            "place_id": r["place_id"],
-            "name": r["Nazwa"],
-            "phone": r["Telefon"] or None,
-            "website": None if r["Strona WWW"] == "BRAK" else r["Strona WWW"],
-            "address": r["Adres"],
-            "rating": r["Ocena"] or None,
-            "review_count": r["Liczba opinii"] or None,
-            "business_status": r["Status"],
-            "industry": r["Branża"],
-            "city": r["Miasto"],
-            "lead_score": r.get("Lead Score"),
-            "website_status": r.get("Website Status"),
-        }
-        for r in rows
-    ]
-    try:
-        resp = requests.post(
-            f"{CRM_API_BASE_URL}/api/prospecting/import",
-            json=payload,
-            headers={"X-API-Key": SCRAPER_IMPORT_KEY},
-            timeout=30,
-        )
-        if resp.ok:
-            return resp.json()
-        st.sidebar.error(f"❌ CRM odpowiedział błędem: {resp.status_code}")
-    except Exception as e:
-        st.sidebar.error(f"❌ Nie udało się wysłać leadów do CRM: {e}")
-    return None
-
-
-# ── Wysyłka wybranych leadów z zakładki "Baza leadów" do CRM (prospecting/import) ──
-
-def build_prospecting_payload(rows: list[dict]) -> list[dict]:
-    """Mapuje zaznaczone wiersze z tabeli leadów na format /api/prospecting/import."""
+def _prepare_crm_payload(rows: list[dict]) -> list[dict]:
+    """Ujednolica format danych wysyłanych do CRM."""
     payload = []
     for r in rows:
         place_id = r.get("place_id", "")
         name = r.get("Nazwa", "")
         city = r.get("Miasto", "")
+        industry = r.get("Branża", "")
 
         website = r.get("Strona WWW", "")
         website = None if website in ("", "BRAK") else website
@@ -556,15 +532,15 @@ def build_prospecting_payload(rows: list[dict]) -> list[dict]:
         except (ValueError, TypeError):
             review_count = None
         try:
-            priority_score = int(float(r["Lead Score"])) if r.get("Lead Score") not in (None, "") else None
+            score_val = int(float(r.get("Lead Score", 0))) if r.get("Lead Score") not in (None, "") else None
         except (ValueError, TypeError):
-            priority_score = None
+            score_val = None
 
-        if priority_score is None:
+        if score_val is None:
             priority_label = None
-        elif priority_score >= 70:
+        elif score_val >= 70:
             priority_label = "wysoki"
-        elif priority_score >= 40:
+        elif score_val >= 40:
             priority_label = "średni"
         else:
             priority_label = "niski"
@@ -583,15 +559,46 @@ def build_prospecting_payload(rows: list[dict]) -> list[dict]:
             "rating": rating,
             "review_count": review_count,
             "business_status": r.get("Status", ""),
-            "category": r.get("Branża", ""),
+            "industry": industry,
+            "category": industry,
             "city": city,
             "google_maps_url": google_maps_url,
-            "priority_score": priority_score,
+            "lead_score": score_val,
+            "priority_score": score_val,
             "priority_label": priority_label,
             "website_status": r.get("Website Status") or None,
             "score_reasons": [],
         })
     return payload
+
+
+def crm_import_batch(rows: list[dict]) -> dict | None:
+    """Wysyła paczkę leadów do CRM. Zwraca odpowiedź albo None przy błędzie/braku konfiguracji."""
+    if not CRM_ENABLED or not rows:
+        return None
+    payload = _prepare_crm_payload(rows)
+    try:
+        resp = requests.post(
+            f"{CRM_API_BASE_URL}/api/prospecting/import",
+            json=payload,
+            headers={"X-API-Key": SCRAPER_IMPORT_KEY},
+            timeout=30,
+        )
+        if resp.ok:
+            return resp.json()
+        st.error(f"❌ CRM odpowiedział błędem: {resp.status_code}")
+        st.sidebar.error(f"❌ CRM błąd: {resp.status_code}")
+    except Exception as e:
+        st.error(f"❌ Nie udało się wysłać leadów do CRM: {e}")
+        st.sidebar.error(f"❌ CRM błąd połączenia")
+    return None
+
+
+# ── Wysyłka wybranych leadów z zakładki "Baza leadów" do CRM (prospecting/import) ──
+
+def build_prospecting_payload(rows: list[dict]) -> list[dict]:
+    """Mapuje zaznaczone wiersze z tabeli leadów na format /api/prospecting/import."""
+    return _prepare_crm_payload(rows)
 
 
 def build_results_table(rows: list[dict], result_data: dict) -> pd.DataFrame:
@@ -626,11 +633,11 @@ def send_prospecting_selection(rows: list[dict]) -> tuple[bool, str, pd.DataFram
         resp = requests.post(
             f"{CRM_API_BASE_URL}/api/prospecting/import",
             json=payload,
-            headers={"x-api-key": SCRAPER_IMPORT_KEY},
+            headers={"X-API-Key": SCRAPER_IMPORT_KEY},
             timeout=30,
         )
     except Exception as e:
-        return False, f"❌ Nie udało się połączyć z CRM: {e}", None
+        return False, f"❌ Nie udało się połączyć z CRM (Timeout/DNS): {e}", None
     if resp.ok:
         try:
             result_data = resp.json()
@@ -1354,6 +1361,7 @@ elif page == "⚙️ Ustawienia":
                     if verified:
                         st.session_state["manual_api_key"] = new_key
                         st.toast("✅ Klucz API zapisany")
+                        st.rerun()
                     else:
                         st.toast("⚠️ Nie udało się potwierdzić zapisu klucza (błąd GCS?) — spróbuj ponownie")
 
