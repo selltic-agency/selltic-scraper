@@ -105,7 +105,13 @@ def process_batch(job_ids: list[str]):
                 "status": "error",
                 "error_message": str(e)[:2000],
                 "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_step": None,
             }).eq("id", job_id).execute()
+
+
+def _set_progress(db, job_id: str, **fields):
+    """Aktualizuje pojedyncze pola scrape_jobs — CRM widzi zmianę na żywo przez Realtime."""
+    db.table("scrape_jobs").update(fields).eq("id", job_id).execute()
 
 
 def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, delay_s: float, owner_id: str):
@@ -114,10 +120,13 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
     if not job:
         return
 
-    db.table("scrape_jobs").update({
-        "status": "running",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", job_id).execute()
+    _set_progress(
+        db, job_id,
+        status="running",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        results_count=0,
+        current_step="Rozpoczynanie…",
+    )
 
     if not api_key:
         raise RuntimeError("Brak klucza Google Places API (scraper_config.google_places_api_key)")
@@ -126,11 +135,14 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
     location = job["location"]
     query = f"{keyword} {location}"
 
-    rows = []
+    rows = []          # zbierane tylko do kopii GCS na końcu
+    count = 0          # ile leadów faktycznie zapisano (dla results_count na żywo)
     next_token = None
     for page_nr in range(max_strony):
         if page_nr > 0 and next_token:
             time.sleep(2)  # token Google Places staje się aktywny z opóźnieniem
+
+        _set_progress(db, job_id, current_step=f"Pobieranie strony {page_nr + 1}/{max_strony}")
 
         data = text_search(query, api_key, next_token if page_nr > 0 else None)
         api_status = data.get("status")
@@ -143,6 +155,9 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
 
         for place in data.get("results", []):
             pid = place["place_id"]
+            place_name = place.get("name", "") or ""
+            _set_progress(db, job_id, current_step=f"Pobieranie szczegółów: {place_name}"[:400])
+
             details = place_details(pid, api_key)
             time.sleep(delay_s)
 
@@ -151,11 +166,11 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
             review_count = details.get("user_ratings_total")
             score, website_status, breakdown = score_website(website, rating, review_count, weights)
 
-            rows.append({
+            row = {
                 "owner": owner_id,
                 "job_id": job_id,
                 "place_id": pid,
-                "business_name": details.get("name", ""),
+                "business_name": details.get("name", "") or place_name,
                 "phone": details.get("formatted_phone_number") or None,
                 "address": details.get("formatted_address") or None,
                 "website": website,
@@ -169,21 +184,35 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
                 "source_location": location,
                 "status": "new",
                 "scraped_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+
+            # Zapis od razu po zescrapowaniu — lead pojawia się w CRM na żywo,
+            # a nie dopiero po zakończeniu całego zadania.
+            db.table("scraped_leads").upsert([row], on_conflict="owner,place_id").execute()
+            rows.append(row)
+            count += 1
+            _set_progress(db, job_id, results_count=count)
 
         next_token = data.get("next_page_token")
         if not next_token:
             break
 
-    if rows:
-        db.table("scraped_leads").upsert(rows, on_conflict="owner,place_id").execute()
-        _write_gcs_backup(job_id, rows)
+    # Zadanie ukończone — status ustawiamy PRZED kopią GCS, żeby ewentualny
+    # błąd backupu nie oznaczał udanego zadania jako "error" (kopia jest opcjonalna).
+    _set_progress(
+        db, job_id,
+        status="done",
+        completed_at=datetime.now(timezone.utc).isoformat(),
+        results_count=count,
+        current_step=None,
+    )
 
-    db.table("scrape_jobs").update({
-        "status": "done",
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "results_count": len(rows),
-    }).eq("id", job_id).execute()
+    if rows:
+        try:
+            _write_gcs_backup(job_id, rows)
+        except Exception as e:
+            # Backup GCS jest best-effort; jego brak nie może psuć udanego zadania.
+            print(f"[process_job] Kopia GCS nie powiodła się dla {job_id}: {e}")
 
 
 def _write_gcs_backup(job_id: str, rows: list[dict]):
