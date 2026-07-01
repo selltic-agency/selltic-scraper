@@ -1,0 +1,38 @@
+# Cloud Build config: builds the image, pushes it to Artifact Registry and
+# deploys to Cloud Run with APP_VERSION set to the short commit SHA, so the
+# app's sidebar always shows exactly which build is live.
+#
+# TODO: fill in YOUR_PROJECT_ID (and adjust _REGION/_SERVICE below if needed).
+substitutions:
+  _REGION: europe-central2
+  _SERVICE: selltic-scraper
+
+images:
+  - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "."
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+
+  - name: "gcr.io/google-cloud-sdk/slim"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "${_SERVICE}"
+      - "--image=europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--set-env-vars=APP_VERSION=${SHORT_SHA}"
+
+options:
+  logging: CLOUD_LOGGING_ONLY

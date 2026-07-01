@@ -708,6 +708,7 @@ with st.sidebar:
     else:
         st.info("ℹ️ CRM nieskonfigurowany")
     st.caption("Pełne ustawienia → sekcja ⚙️ Ustawienia")
+    st.caption(f"v · {os.environ.get('APP_VERSION') or 'local'}")
 
 st.title("🔍 Selltic – Google Maps Scraper")
 
