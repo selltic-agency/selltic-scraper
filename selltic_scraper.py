@@ -1359,7 +1359,6 @@ elif page == "⚙️ Ustawienia":
                     verified = load_config().get("google_places_api_key", "") == new_key
                     print(f"[api_key debug] save attempted key_empty={not bool(new_key)} verified={verified}")
                     if verified:
-                        st.session_state["manual_api_key"] = new_key
                         st.toast("✅ Klucz API zapisany")
                         st.rerun()
                     else:
