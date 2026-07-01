@@ -4,6 +4,7 @@ import pandas as pd
 import time
 import os
 import json
+from urllib.parse import quote
 from datetime import datetime
 from io import BytesIO
 from openpyxl import Workbook
@@ -437,6 +438,91 @@ def crm_import_batch(rows: list[dict]) -> dict | None:
     return None
 
 
+# ── Wysyłka wybranych leadów z zakładki "Baza leadów" do CRM (prospecting/import) ──
+
+def build_prospecting_payload(rows: list[dict]) -> list[dict]:
+    """Mapuje zaznaczone wiersze z tabeli leadów na format /api/prospecting/import."""
+    payload = []
+    for r in rows:
+        place_id = r.get("place_id", "")
+        name = r.get("Nazwa", "")
+        city = r.get("Miasto", "")
+
+        website = r.get("Strona WWW", "")
+        website = None if website in ("", "BRAK") else website
+
+        try:
+            rating = float(r["Ocena"]) if r.get("Ocena") not in (None, "") else None
+        except (ValueError, TypeError):
+            rating = None
+        try:
+            review_count = int(float(r["Liczba opinii"])) if r.get("Liczba opinii") not in (None, "") else None
+        except (ValueError, TypeError):
+            review_count = None
+        try:
+            priority_score = int(float(r["Lead Score"])) if r.get("Lead Score") not in (None, "") else None
+        except (ValueError, TypeError):
+            priority_score = None
+
+        if priority_score is None:
+            priority_label = None
+        elif priority_score >= 70:
+            priority_label = "wysoki"
+        elif priority_score >= 40:
+            priority_label = "średni"
+        else:
+            priority_label = "niski"
+
+        if place_id:
+            google_maps_url = f"https://maps.google.com/?cid={place_id}"
+        else:
+            google_maps_url = f"https://www.google.com/maps/search/?api=1&query={quote(f'{name} {city}')}"
+
+        payload.append({
+            "place_id": place_id,
+            "name": name,
+            "phone": r.get("Telefon") or None,
+            "website": website,
+            "address": r.get("Adres", ""),
+            "rating": rating,
+            "review_count": review_count,
+            "business_status": r.get("Status", ""),
+            "category": r.get("Branża", ""),
+            "city": city,
+            "google_maps_url": google_maps_url,
+            "priority_score": priority_score,
+            "priority_label": priority_label,
+            "website_status": r.get("Website Status") or None,
+            "score_reasons": [],
+        })
+    return payload
+
+
+def build_results_table(rows: list[dict], result_data: dict) -> pd.DataFrame:
+    """Buduje tabelę wyników (Nazwa | Status | Info) na podstawie odpowiedzi CRM."""
+    status_labels = {
+        "created": "✅ Dodano",
+        "updated": "🔄 Zaktualizowano",
+        "error": "❌ Błąd",
+    }
+    items = result_data.get("results") if isinstance(result_data, dict) else None
+
+    table_rows = []
+    if isinstance(items, list) and len(items) == len(rows):
+        for row, item in zip(rows, items):
+            status_key = str(item.get("status", "")).lower()
+            status_label = status_labels.get(status_key, item.get("status", "?"))
+            info = item.get("error") or item.get("message") or ""
+            table_rows.append({"Nazwa": row.get("Nazwa", ""), "Status": status_label, "Info": info})
+    else:
+        added = result_data.get("added") if isinstance(result_data, dict) else None
+        updated = result_data.get("updated") if isinstance(result_data, dict) else None
+        info = f"Dodano: {added if added is not None else '?'}, zaktualizowano: {updated if updated is not None else '?'}"
+        for row in rows:
+            table_rows.append({"Nazwa": row.get("Nazwa", ""), "Status": "✅ Wysłano", "Info": info})
+    return pd.DataFrame(table_rows)
+
+
 # ── Master DB helpers ─────────────────────────────────────────────────────────
 
 def load_master() -> pd.DataFrame:
@@ -854,7 +940,52 @@ elif page == "📦 Baza leadów":
             df_filtered = df_filtered[df_filtered["Strona WWW"] != "BRAK"]
 
         st.markdown(f"**{len(df_filtered)} rekordów** po filtrach")
-        st.dataframe(df_filtered[EXPORT_COLUMNS], use_container_width=True, height=450, hide_index=True)
+
+        df_filtered_reset = df_filtered.reset_index(drop=True)
+
+        if CRM_ENABLED:
+            df_display = df_filtered_reset[EXPORT_COLUMNS].copy()
+            df_display.insert(0, "Wyślij", False)
+            df_edited = st.data_editor(
+                df_display,
+                use_container_width=True, height=450, hide_index=True,
+                disabled=EXPORT_COLUMNS,
+                column_config={"Wyślij": st.column_config.CheckboxColumn("Wyślij", default=False)},
+                key="lead_table_editor",
+            )
+
+            if st.button("📤 Wyślij zaznaczone do CRM", use_container_width=True):
+                selected_positions = df_edited.index[df_edited["Wyślij"] == True].tolist()
+                if not selected_positions:
+                    st.warning("Zaznacz przynajmniej jeden wiersz w kolumnie 'Wyślij'.")
+                else:
+                    selected_rows = df_filtered_reset.loc[selected_positions].to_dict("records")
+                    payload = build_prospecting_payload(selected_rows)
+                    resp = None
+                    try:
+                        with st.spinner(f"📤 Wysyłam {len(payload)} leadów do CRM..."):
+                            resp = requests.post(
+                                f"{CRM_API_BASE_URL}/api/prospecting/import",
+                                json=payload,
+                                headers={"x-api-key": SCRAPER_IMPORT_KEY},
+                                timeout=30,
+                            )
+                    except Exception as e:
+                        st.error(f"❌ Nie udało się połączyć z CRM: {e}")
+
+                    if resp is not None:
+                        if resp.ok:
+                            try:
+                                result_data = resp.json()
+                            except Exception:
+                                result_data = {}
+                            st.success("📤 Wysłano do CRM.")
+                            results_table = build_results_table(selected_rows, result_data)
+                            st.dataframe(results_table, use_container_width=True, hide_index=True)
+                        else:
+                            st.error(f"❌ CRM odpowiedział błędem {resp.status_code}: {resp.text}")
+        else:
+            st.dataframe(df_filtered_reset[EXPORT_COLUMNS], use_container_width=True, height=450, hide_index=True)
 
         bc1, bc2, bc3 = st.columns(3)
         with bc1:
