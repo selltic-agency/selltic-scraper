@@ -144,6 +144,7 @@ EXPORT_COLUMNS = ["Nazwa", "Telefon", "Strona WWW", "Adres", "Ocena", "Liczba op
 MASTER_FILE = "baza_leadow.csv"
 HISTORY_FILE = "historia_zapytan.json"
 WEIGHTS_FILE = "scoring_weights.json"
+CONFIG_FILE = "config.json"
 
 # ── Hasło dostępu (Cloud Run: ustaw zmienną środowiskową APP_PASSWORD) ────────
 # Wyjątek: jeśli aplikacja jest osadzona jako zakładka w CRM (iframe/reverse proxy),
@@ -233,6 +234,40 @@ def gcs_push(local_filename: str):
 
 
 gcs_pull_all()
+
+
+def load_config() -> dict:
+    """Wczytuje config.json (np. klucz API) z bucketa GCS, a jeśli GCS nie jest skonfigurowany - z pliku lokalnego."""
+    if GCS_BUCKET:
+        try:
+            client = _gcs_client()
+            blob = client.bucket(GCS_BUCKET).blob(CONFIG_FILE)
+            if blob.exists():
+                return json.loads(blob.download_as_text())
+        except Exception as e:
+            st.sidebar.error(f"Błąd odczytu config.json z GCS: {e}")
+        return {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_config(data: dict):
+    """Zapisuje config.json (np. klucz API) do bucketa GCS, a jeśli GCS nie jest skonfigurowany - do pliku lokalnego."""
+    if GCS_BUCKET:
+        try:
+            client = _gcs_client()
+            blob = client.bucket(GCS_BUCKET).blob(CONFIG_FILE)
+            blob.upload_from_string(json.dumps(data, ensure_ascii=False, indent=2), content_type="application/json")
+        except Exception as e:
+            st.sidebar.error(f"Błąd zapisu config.json do GCS: {e}")
+        return
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ── Scoring stron WWW ──────────────────────────────────────────────────────────
@@ -644,6 +679,9 @@ def to_excel(df: pd.DataFrame) -> BytesIO:
 # ══════════════════════════════════════════════════════════════════════════════
 
 env_api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+app_config = load_config()
+if "manual_api_key" not in st.session_state:
+    st.session_state["manual_api_key"] = app_config.get("google_places_api_key", "")
 api_key = env_api_key if env_api_key else st.session_state.get("manual_api_key", "")
 
 PAGES = [
@@ -1050,10 +1088,14 @@ elif page == "⚙️ Ustawienia":
         if env_api_key:
             st.success("✅ Klucz API wczytany ze zmiennej środowiskowej `GOOGLE_PLACES_API_KEY`")
         else:
+            def _save_manual_api_key():
+                save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
+
             st.text_input(
                 "Google Places API Key", type="password", placeholder="AIza...",
                 key="manual_api_key",
-                help="Wykorzystywany tylko w tej sesji. Na produkcji ustaw zmienną środowiskową GOOGLE_PLACES_API_KEY.",
+                on_change=_save_manual_api_key,
+                help="Zapisywany trwale (GCS/config.json) — przetrwa restart kontenera. Na produkcji możesz zamiast tego ustawić zmienną środowiskową GOOGLE_PLACES_API_KEY.",
             )
 
     with st.container(border=True):
