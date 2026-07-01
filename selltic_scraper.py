@@ -4,6 +4,7 @@ import pandas as pd
 import time
 import os
 import json
+import math
 from urllib.parse import quote
 from datetime import datetime
 from io import BytesIO
@@ -13,131 +14,191 @@ from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Selltic Scraper", page_icon="🔍", layout="wide")
 
-# ── Material Design theming ────────────────────────────────────────────────────
+# ── Selltic theming (białe karty / jasnoszare tło / fiolet) ───────────────────
 
-MATERIAL_CSS = """
+SELLTIC_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    --md-primary: #6750A4;
-    --md-primary-dark: #543F8E;
-    --md-primary-container: #EADDFF;
-    --md-on-primary: #ffffff;
-    --md-surface: #ffffff;
-    --md-bg: #F5F0FC;
-    --md-outline: #E5DCF5;
-    --md-on-surface: #1D1B20;
-    --md-on-surface-variant: #49454F;
+    --sl-accent: #6C5CE7;
+    --sl-accent-dark: #5A4BD1;
+    --sl-bg: #F6F7F9;
+    --sl-surface: #FFFFFF;
+    --sl-border: #ECEEF3;
+    --sl-text: #1F2430;
+    --sl-text-muted: #767E8C;
 }
 
 html, body, [class*="css"] {
-    font-family: 'Roboto Flex', 'Segoe UI', sans-serif;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    color: var(--sl-text);
 }
 
 .stApp {
-    background-color: var(--md-bg);
+    background-color: var(--sl-bg);
 }
 
 h1, h2, h3, h4 {
-    font-weight: 600 !important;
-    color: var(--md-on-surface);
+    font-weight: 700 !important;
+    color: var(--sl-text);
     letter-spacing: -0.01em;
 }
 
 h1 {
-    font-size: 2.1rem !important;
+    font-size: 1.7rem !important;
 }
 
 section[data-testid="stSidebar"] {
-    background-color: var(--md-surface);
-    border-right: none;
-    box-shadow: 2px 0 12px rgba(103, 80, 164, 0.08);
-    border-radius: 0 20px 20px 0;
+    background-color: var(--sl-surface);
+    border-right: 1px solid var(--sl-border);
+    box-shadow: none;
 }
 
-.md-brand {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: var(--md-primary);
-    padding: 0.25rem 0 0 0;
+.sl-logo-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0 1.25rem 0;
 }
+
+.sl-logo-square {
+    width: 34px;
+    height: 34px;
+    background: var(--sl-accent);
+    color: #fff;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.sl-logo-text { line-height: 1.15; }
+.sl-logo-title { font-weight: 700; font-size: 1.05rem; color: var(--sl-text); }
+.sl-logo-subtitle { font-size: 0.78rem; color: var(--sl-text-muted); }
 
 section[data-testid="stSidebar"] div[role="radiogroup"] {
-    gap: 0.25rem;
+    gap: 0.2rem;
 }
 
 section[data-testid="stSidebar"] div[role="radiogroup"] label {
-    padding: 0.65rem 1rem;
-    border-radius: 999px;
-    margin-bottom: 0.15rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: 10px;
+    margin-bottom: 0.1rem;
     font-weight: 500;
-    transition: background-color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-of-type {
+    display: none;
 }
 
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-    background-color: var(--md-primary-container);
+    background-color: #F1EEFC;
 }
 
-section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
-    background-color: var(--md-primary-container);
-    font-weight: 700;
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+    background-color: var(--sl-accent);
 }
+
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {
+    color: #ffffff !important;
+    font-weight: 600;
+}
+
+.sl-status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--sl-text-muted);
+    margin-bottom: 0.4rem;
+}
+
+.sl-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.sl-dot-green { background-color: #22C55E; }
+.sl-dot-red { background-color: #EF4444; }
+.sl-dot-gray { background-color: #B9BFC9; }
 
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: var(--md-surface);
-    border-radius: 16px !important;
-    border: none !important;
-    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12), 0 4px 12px rgba(103, 80, 164, 0.06);
+    background-color: var(--sl-surface);
+    border-radius: 14px !important;
+    border: 1px solid var(--sl-border) !important;
+    box-shadow: none !important;
     padding: 0.5rem 0.75rem;
 }
 
 div[data-testid="stExpander"] {
-    background-color: var(--md-surface);
-    border-radius: 16px;
-    border: none;
-    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.10);
+    background-color: var(--sl-surface);
+    border-radius: 14px;
+    border: 1px solid var(--sl-border);
+    box-shadow: none;
 }
 
 div.stButton > button, div.stDownloadButton > button {
     border-radius: 999px;
     font-weight: 600;
-    border: 1px solid var(--md-outline);
+    border: 1px solid var(--sl-border);
     padding: 0.5rem 1.25rem;
+    background-color: #ffffff;
+    color: var(--sl-text);
 }
 
 div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
-    background-color: var(--md-primary);
+    background-color: var(--sl-accent);
     border: none;
-    color: var(--md-on-primary);
-    box-shadow: 0 2px 6px rgba(103, 80, 164, 0.35);
+    color: #ffffff;
+    box-shadow: none;
 }
 
 div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind="primary"]:hover {
-    background-color: var(--md-primary-dark);
+    background-color: var(--sl-accent-dark);
+    color: #ffffff;
 }
 
 div[data-testid="stMetric"] {
-    background-color: var(--md-surface);
-    border-radius: 16px;
-    border: none;
-    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12);
+    background-color: var(--sl-surface);
+    border-radius: 14px;
+    border: 1px solid var(--sl-border);
+    box-shadow: none;
     padding: 1rem 1.25rem;
 }
 
 div[data-testid="stDataFrame"] {
-    border-radius: 16px;
+    border-radius: 14px;
     overflow: hidden;
-    border: none;
-    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12);
+    border: 1px solid var(--sl-border);
+    box-shadow: none;
 }
 
-div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input, textarea {
-    border-radius: 12px !important;
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+textarea,
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    border-radius: 8px !important;
+    border-color: var(--sl-border) !important;
+}
+
+.sl-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
 }
 </style>
 """
-st.markdown(MATERIAL_CSS, unsafe_allow_html=True)
+st.markdown(SELLTIC_CSS, unsafe_allow_html=True)
 
 COLUMNS = ["place_id", "Nazwa", "Telefon", "Strona WWW", "Adres", "Ocena", "Liczba opinii", "Status", "Branża", "Miasto", "Data dodania", "Website Status", "Lead Score"]
 EXPORT_COLUMNS = ["Nazwa", "Telefon", "Strona WWW", "Adres", "Ocena", "Liczba opinii", "Status", "Branża", "Miasto", "Data dodania", "Website Status", "Lead Score"]
@@ -558,6 +619,27 @@ def build_results_table(rows: list[dict], result_data: dict) -> pd.DataFrame:
     return pd.DataFrame(table_rows)
 
 
+def send_prospecting_selection(rows: list[dict]) -> tuple[bool, str, pd.DataFrame | None]:
+    """Wysyła ręcznie zaznaczone leady do CRM (/api/prospecting/import). Zwraca (ok, komunikat, tabela wynikowa)."""
+    payload = build_prospecting_payload(rows)
+    try:
+        resp = requests.post(
+            f"{CRM_API_BASE_URL}/api/prospecting/import",
+            json=payload,
+            headers={"x-api-key": SCRAPER_IMPORT_KEY},
+            timeout=30,
+        )
+    except Exception as e:
+        return False, f"❌ Nie udało się połączyć z CRM: {e}", None
+    if resp.ok:
+        try:
+            result_data = resp.json()
+        except Exception:
+            result_data = {}
+        return True, "📤 Wysłano do CRM.", build_results_table(rows, result_data)
+    return False, f"❌ CRM odpowiedział błędem {resp.status_code}: {resp.text}", None
+
+
 # ── Master DB helpers ─────────────────────────────────────────────────────────
 
 def load_master() -> pd.DataFrame:
@@ -674,6 +756,70 @@ def to_excel(df: pd.DataFrame) -> BytesIO:
     return buf
 
 
+# ── UI display helpers (badge/pill rendering) ─────────────────────────────────
+
+def status_dot(color: str) -> str:
+    return f'<span class="sl-dot sl-dot-{color}"></span>'
+
+
+def status_line(color: str, text: str) -> str:
+    return f'<div class="sl-status-row">{status_dot(color)}{text}</div>'
+
+
+def pill_html(text, color: str, bg: str) -> str:
+    return f'<span class="sl-pill" style="color:{color};background:{bg};">{text}</span>'
+
+
+def score_pill(score) -> str:
+    try:
+        s = int(float(score))
+    except (ValueError, TypeError):
+        s = 0
+    if s >= 70:
+        return pill_html(s, "#1B8A5A", "#E6F7EF")
+    if s >= 35:
+        return pill_html(s, "#B7791F", "#FEF3D7")
+    return pill_html(s, "#5B6472", "#F1F2F4")
+
+
+def website_badge(website: str) -> str:
+    if not website or website == "BRAK":
+        return pill_html("Brak strony", "#1B8A5A", "#E6F7EF")
+    domain = str(website).replace("https://", "").replace("http://", "").split("/")[0]
+    return pill_html(domain, "#5B6472", "#F1F2F4")
+
+
+def maps_url(place_id: str, name: str, city: str) -> str:
+    if place_id:
+        return f"https://maps.google.com/?cid={place_id}"
+    return f"https://www.google.com/maps/search/?api=1&query={quote(f'{name} {city}')}"
+
+
+def render_leads_rows(rows: list[dict], key_prefix: str):
+    """Renderuje tabelę leadów jako wiersze z checkboxami + kolorowymi odznakami (Score/Strona WWW)."""
+    widths = [0.4, 3, 1.5, 2, 1.8, 1, 0.8]
+    header_cols = st.columns(widths)
+    for c, h in zip(header_cols, ["", "Firma", "Telefon", "Strona WWW", "Ocena / opinie", "Score", "Mapy"]):
+        c.markdown(f"**{h}**")
+    st.markdown('<hr style="margin:0.25rem 0;border:none;border-top:1px solid #ECEEF3;">', unsafe_allow_html=True)
+    for row in rows:
+        cols = st.columns(widths)
+        cols[0].checkbox("Wybierz", key=f"{key_prefix}_{row.get('place_id','')}", label_visibility="collapsed")
+        cols[1].markdown(
+            f"**{row.get('Nazwa','')}**<br><span style='color:#767E8C;font-size:0.82rem;'>{row.get('Branża','')}</span>",
+            unsafe_allow_html=True,
+        )
+        cols[2].markdown(row.get("Telefon") or "—")
+        cols[3].markdown(website_badge(row.get("Strona WWW", "")), unsafe_allow_html=True)
+        rating = row.get("Ocena") or "—"
+        reviews = row.get("Liczba opinii") or 0
+        cols[4].markdown(f"⭐ {rating} ({reviews})")
+        cols[5].markdown(score_pill(row.get("Lead Score", 0)), unsafe_allow_html=True)
+        link = maps_url(row.get("place_id", ""), row.get("Nazwa", ""), row.get("Miasto", ""))
+        cols[6].markdown(f"[📍]({link})")
+        st.markdown('<hr style="margin:0.25rem 0;border:none;border-top:1px solid #ECEEF3;">', unsafe_allow_html=True)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # UI
 # ══════════════════════════════════════════════════════════════════════════════
@@ -692,25 +838,32 @@ PAGES = [
 ]
 
 with st.sidebar:
-    st.markdown('<div class="md-brand">🔍 Selltic Scraper</div>', unsafe_allow_html=True)
-    st.caption("Google Maps Scraper + CRM")
-    st.divider()
+    st.markdown(
+        '<div class="sl-logo-row">'
+        '<div class="sl-logo-square">S</div>'
+        '<div class="sl-logo-text">'
+        '<div class="sl-logo-title">Selltic</div>'
+        '<div class="sl-logo-subtitle">Scraper</div>'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
     page = st.radio("Nawigacja", PAGES, label_visibility="collapsed", key="nav_page")
-    st.divider()
-    if env_api_key:
-        st.success("✅ Klucz API ze środowiska")
-    elif api_key:
-        st.info("🔑 Klucz API ustawiony ręcznie")
+
+    st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
+
+    if api_key:
+        st.markdown(status_line("green", "Klucz API zapisany"), unsafe_allow_html=True)
     else:
-        st.warning("⚠️ Brak klucza Google Places API")
+        st.markdown(status_line("red", "Brak klucza API"), unsafe_allow_html=True)
+
     if CRM_ENABLED:
-        st.success("✅ CRM połączony")
+        st.markdown(status_line("green", "CRM połączony"), unsafe_allow_html=True)
     else:
-        st.info("ℹ️ CRM nieskonfigurowany")
-    st.caption("Pełne ustawienia → sekcja ⚙️ Ustawienia")
+        st.markdown(status_line("gray", "CRM nieskonfigurowany"), unsafe_allow_html=True)
+
     st.caption(f"v · {os.environ.get('APP_VERSION') or 'local'}")
 
-st.title("🔍 Selltic – Google Maps Scraper")
+st.title("Selltic – Google Maps Scraper")
 
 
 # ── Strona: Scraper ───────────────────────────────────────────────────────────
@@ -718,19 +871,49 @@ if page == "🚀 Scraper":
     history = load_history()
     master_ids = set(load_master()["place_id"].tolist())
 
-    col1, col2 = st.columns(2)
-    with col1:
-        branze_input = st.text_area("Branże (jedna na linię)",
-            placeholder="hydraulik\nusługi hydrauliczne\ninstalator wod-kan", height=150)
-    with col2:
-        lokalizacje_input = st.text_area("Lokalizacje (jedna na linię)",
-            placeholder="Wrocław Krzyki\nWrocław Fabryczna\nWrocław Śródmieście", height=150)
+    if "last_session_rows" not in st.session_state:
+        st.session_state["last_session_rows"] = []
 
-    col3, col4 = st.columns(2)
-    with col3:
-        tylko_bez_strony = st.checkbox("Tylko firmy BEZ strony WWW", value=True)
-    with col4:
-        max_strony = st.slider("Max stron wyników na zapytanie", 1, 3, 2)
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            branze_input = st.text_area(
+                "Branża", key="input_branza",
+                placeholder="hydraulik\nusługi hydrauliczne\ninstalator wod-kan", height=110,
+            )
+        with col2:
+            lokalizacje_input = st.text_area(
+                "Miasto", key="input_miasto",
+                placeholder="Wrocław Krzyki\nWrocław Fabryczna\nWrocław Śródmieście", height=110,
+            )
+
+        col3, col4 = st.columns([1, 2])
+        with col3:
+            limit_firm = st.number_input("Limit firm", min_value=20, max_value=180, value=60, step=20)
+            st.caption("Google Places zwraca ~20 firm na stronę")
+        with col4:
+            powtorz = st.checkbox("Wykonaj ponownie już zrobione zapytania", value=False)
+
+        max_strony = min(3, math.ceil(limit_firm / 20))
+
+        run_clicked = st.button("🚀 Szukaj", type="primary", use_container_width=True)
+
+    auto_run = st.session_state.pop("auto_run_scraper", False)
+    should_run = run_clicked or auto_run
+
+    # Ostatnie wyszukiwania — klikalne chipy powtarzające zapytanie
+    if history:
+        st.markdown("**Ostatnie wyszukiwania — kliknij żeby powtórzyć**")
+        recent = sorted(history.items(), key=lambda x: x[1]["data"], reverse=True)[:8]
+        chip_cols = st.columns(4)
+        for i, (k, v) in enumerate(recent):
+            branza_h, miasto_h = k.split("|", 1)
+            label = f"{branza_h.title()} · {miasto_h.title()} — {v['leady']} firm — {v['data']}"
+            if chip_cols[i % 4].button(label, key=f"chip_{i}", use_container_width=True):
+                st.session_state["input_branza"] = branza_h
+                st.session_state["input_miasto"] = miasto_h
+                st.session_state["auto_run_scraper"] = True
+                st.rerun()
 
     # Query preview
     if branze_input.strip() and lokalizacje_input.strip():
@@ -753,9 +936,7 @@ if page == "🚀 Scraper":
                 for n in nowe:
                     st.markdown(f"- {n}")
 
-    powtorz = st.checkbox("Wykonaj ponownie już zrobione zapytania", value=False)
-
-    if st.button("🚀 Rozpocznij scraping", type="primary", use_container_width=True):
+    if should_run:
         if not api_key:
             st.error("Wklej klucz API w panelu bocznym.")
         elif not branze_input.strip() or not lokalizacje_input.strip():
@@ -848,10 +1029,6 @@ if page == "🚀 Scraper":
                         time.sleep(0.05)
 
                         strona_www = details.get("website", "")
-                        if tylko_bez_strony and strona_www:
-                            pominiete += 1
-                            met_pominiete.metric("⏭️ Duplikaty sesji", pominiete)
-                            continue
 
                         ocena = details.get("rating", "")
                         liczba_opinii = details.get("user_ratings_total", "")
@@ -904,18 +1081,9 @@ if page == "🚀 Scraper":
             progress_bar.progress(1.0)
             status_text.success(f"✅ Gotowe! Dodano **{len(session_rows)}** nowych leadów · pominięto **{duplikaty_baza}** już istniejących w bazie.")
 
-            if session_rows:
-                df_session = pd.DataFrame(session_rows)[EXPORT_COLUMNS]
-                excel_buf = to_excel(df_session)
-                st.download_button(
-                    label="📥 Pobierz Excel (tylko ta sesja)",
-                    data=excel_buf,
-                    file_name=f"leady_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="primary"
-                )
+            st.session_state["last_session_rows"] = session_rows
 
+            if session_rows:
                 # Automatyczny import do CRM
                 if CRM_ENABLED:
                     with st.spinner("📤 Wysyłam leady do CRM..."):
@@ -941,90 +1109,149 @@ if page == "🚀 Scraper":
             else:
                 st.error("❌ Nadal nie udało się połączyć z CRM.")
 
+    # Wyniki wyszukiwania (utrzymywane w session_state, żeby filtry/checkboxy działały bez ponownego scrapingu)
+    if st.session_state["last_session_rows"]:
+        st.divider()
+        st.markdown("#### Wyniki wyszukiwania")
+
+        fcol1, fcol2 = st.columns(2)
+        with fcol1:
+            filtr_priorytet = st.selectbox(
+                "Priorytet",
+                ["Wszystkie priorytety", "Wysoki (≥70)", "Średni (35-69)", "Niski (<35)"],
+                key="res_filtr_priorytet",
+            )
+        with fcol2:
+            filtr_strona_res = st.selectbox(
+                "Strona WWW",
+                ["Wszystkie strony", "Tylko bez strony", "Tylko ze stroną"],
+                key="res_filtr_strona",
+            )
+
+        rows_view = list(st.session_state["last_session_rows"])
+
+        def _score(r):
+            try:
+                return int(float(r.get("Lead Score") or 0))
+            except (ValueError, TypeError):
+                return 0
+
+        if filtr_priorytet == "Wysoki (≥70)":
+            rows_view = [r for r in rows_view if _score(r) >= 70]
+        elif filtr_priorytet == "Średni (35-69)":
+            rows_view = [r for r in rows_view if 35 <= _score(r) < 70]
+        elif filtr_priorytet == "Niski (<35)":
+            rows_view = [r for r in rows_view if _score(r) < 35]
+
+        if filtr_strona_res == "Tylko bez strony":
+            rows_view = [r for r in rows_view if not r.get("Strona WWW") or r.get("Strona WWW") == "BRAK"]
+        elif filtr_strona_res == "Tylko ze stroną":
+            rows_view = [r for r in rows_view if r.get("Strona WWW") and r.get("Strona WWW") != "BRAK"]
+
+        with st.container(border=True):
+            if rows_view:
+                render_leads_rows(rows_view, key_prefix="res")
+            else:
+                st.caption("Brak wyników pasujących do filtrów.")
+
+        selected_rows = [r for r in rows_view if st.session_state.get(f"res_{r.get('place_id','')}")]
+        if selected_rows:
+            if st.button(f"📤 Wyślij zaznaczone do CRM ({len(selected_rows)})", type="primary",
+                         use_container_width=True, key="send_selected_scraper"):
+                with st.spinner("📤 Wysyłam leady do CRM..."):
+                    ok, msg, results_table = send_prospecting_selection(selected_rows)
+                if ok:
+                    st.success(msg)
+                    if results_table is not None:
+                        st.dataframe(results_table, use_container_width=True, hide_index=True)
+                else:
+                    st.error(msg)
+
+        df_session_full = pd.DataFrame(st.session_state["last_session_rows"])[EXPORT_COLUMNS]
+        excel_buf = to_excel(df_session_full)
+        st.download_button(
+            label="📥 Pobierz Excel (tylko ta sesja)",
+            data=excel_buf,
+            file_name=f"leady_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
 
 # ── Strona: Baza leadów ───────────────────────────────────────────────────────
 elif page == "📦 Baza leadów":
     df_master = load_master()
 
     if df_master.empty:
-        st.info("Baza jest pusta. Uruchom scraper żeby zebrać pierwsze leady.")
+        st.markdown(
+            "<div style='text-align:center;padding:3.5rem 0;color:#767E8C;'>"
+            "<div style='font-size:2.5rem;'>🔍</div>"
+            "<div style='margin-top:0.75rem;'>Baza jest pusta — uruchom scraper żeby zebrać pierwsze leady</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
     else:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Wszystkich leadów", len(df_master))
-        col2.metric("Unikalnych miast", df_master["Miasto"].nunique())
-        col3.metric("Unikalnych branż", df_master["Branża"].nunique())
-        col4.metric("Bez strony WWW", (df_master["Strona WWW"] == "BRAK").sum())
+        col2.metric("Bez strony WWW", (df_master["Strona WWW"] == "BRAK").sum())
+        col3.metric("Unikalne miasta", df_master["Miasto"].nunique())
+        col4.metric("Unikalne branże", df_master["Branża"].nunique())
 
         st.divider()
 
-        # Filters
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            miasta = ["Wszystkie"] + sorted(df_master["Miasto"].unique().tolist())
-            filtr_miasto = st.selectbox("Miasto", miasta)
-        with fc2:
-            branze_list = ["Wszystkie"] + sorted(df_master["Branża"].unique().tolist())
-            filtr_branza = st.selectbox("Branża", branze_list)
-        with fc3:
-            filtr_strona = st.selectbox("Strona WWW", ["Wszystkie", "Tylko BEZ strony", "Tylko Z stroną"])
+        with st.container(border=True):
+            # Filters
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                miasta = ["Wszystkie"] + sorted(df_master["Miasto"].unique().tolist())
+                filtr_miasto = st.selectbox("Miasto", miasta)
+            with fc2:
+                branze_list = ["Wszystkie"] + sorted(df_master["Branża"].unique().tolist())
+                filtr_branza = st.selectbox("Branża", branze_list)
+            with fc3:
+                filtr_strona = st.selectbox("Strona WWW", ["Wszystkie", "Tylko BEZ strony", "Tylko Z stroną"])
 
-        df_filtered = df_master.copy()
-        if filtr_miasto != "Wszystkie":
-            df_filtered = df_filtered[df_filtered["Miasto"] == filtr_miasto]
-        if filtr_branza != "Wszystkie":
-            df_filtered = df_filtered[df_filtered["Branża"] == filtr_branza]
-        if filtr_strona == "Tylko BEZ strony":
-            df_filtered = df_filtered[df_filtered["Strona WWW"] == "BRAK"]
-        elif filtr_strona == "Tylko Z stroną":
-            df_filtered = df_filtered[df_filtered["Strona WWW"] != "BRAK"]
+            df_filtered = df_master.copy()
+            if filtr_miasto != "Wszystkie":
+                df_filtered = df_filtered[df_filtered["Miasto"] == filtr_miasto]
+            if filtr_branza != "Wszystkie":
+                df_filtered = df_filtered[df_filtered["Branża"] == filtr_branza]
+            if filtr_strona == "Tylko BEZ strony":
+                df_filtered = df_filtered[df_filtered["Strona WWW"] == "BRAK"]
+            elif filtr_strona == "Tylko Z stroną":
+                df_filtered = df_filtered[df_filtered["Strona WWW"] != "BRAK"]
 
-        st.markdown(f"**{len(df_filtered)} rekordów** po filtrach")
+            st.markdown(f"**{len(df_filtered)} rekordów** po filtrach")
 
-        df_filtered_reset = df_filtered.reset_index(drop=True)
+            df_filtered_reset = df_filtered.reset_index(drop=True)
 
-        if CRM_ENABLED:
-            df_display = df_filtered_reset[EXPORT_COLUMNS].copy()
-            df_display.insert(0, "Wyślij", False)
-            df_edited = st.data_editor(
-                df_display,
-                use_container_width=True, height=450, hide_index=True,
-                disabled=EXPORT_COLUMNS,
-                column_config={"Wyślij": st.column_config.CheckboxColumn("Wyślij", default=False)},
-                key="lead_table_editor",
-            )
+            if CRM_ENABLED:
+                df_display = df_filtered_reset[EXPORT_COLUMNS].copy()
+                df_display.insert(0, "Wyślij", False)
+                df_edited = st.data_editor(
+                    df_display,
+                    use_container_width=True, height=450, hide_index=True,
+                    disabled=EXPORT_COLUMNS,
+                    column_config={"Wyślij": st.column_config.CheckboxColumn("Wyślij", default=False)},
+                    key="lead_table_editor",
+                )
 
-            if st.button("📤 Wyślij zaznaczone do CRM", use_container_width=True):
-                selected_positions = df_edited.index[df_edited["Wyślij"] == True].tolist()
-                if not selected_positions:
-                    st.warning("Zaznacz przynajmniej jeden wiersz w kolumnie 'Wyślij'.")
-                else:
-                    selected_rows = df_filtered_reset.loc[selected_positions].to_dict("records")
-                    payload = build_prospecting_payload(selected_rows)
-                    resp = None
-                    try:
-                        with st.spinner(f"📤 Wysyłam {len(payload)} leadów do CRM..."):
-                            resp = requests.post(
-                                f"{CRM_API_BASE_URL}/api/prospecting/import",
-                                json=payload,
-                                headers={"x-api-key": SCRAPER_IMPORT_KEY},
-                                timeout=30,
-                            )
-                    except Exception as e:
-                        st.error(f"❌ Nie udało się połączyć z CRM: {e}")
-
-                    if resp is not None:
-                        if resp.ok:
-                            try:
-                                result_data = resp.json()
-                            except Exception:
-                                result_data = {}
-                            st.success("📤 Wysłano do CRM.")
-                            results_table = build_results_table(selected_rows, result_data)
-                            st.dataframe(results_table, use_container_width=True, hide_index=True)
+                if st.button("📤 Wyślij zaznaczone do CRM", type="primary", use_container_width=True):
+                    selected_positions = df_edited.index[df_edited["Wyślij"] == True].tolist()
+                    if not selected_positions:
+                        st.warning("Zaznacz przynajmniej jeden wiersz w kolumnie 'Wyślij'.")
+                    else:
+                        selected_rows = df_filtered_reset.loc[selected_positions].to_dict("records")
+                        with st.spinner(f"📤 Wysyłam {len(selected_rows)} leadów do CRM..."):
+                            ok, msg, results_table = send_prospecting_selection(selected_rows)
+                        if ok:
+                            st.success(msg)
+                            if results_table is not None:
+                                st.dataframe(results_table, use_container_width=True, hide_index=True)
                         else:
-                            st.error(f"❌ CRM odpowiedział błędem {resp.status_code}: {resp.text}")
-        else:
-            st.dataframe(df_filtered_reset[EXPORT_COLUMNS], use_container_width=True, height=450, hide_index=True)
+                            st.error(msg)
+            else:
+                st.dataframe(df_filtered_reset[EXPORT_COLUMNS], use_container_width=True, height=450, hide_index=True)
 
         bc1, bc2, bc3 = st.columns(3)
         with bc1:
@@ -1053,22 +1280,35 @@ elif page == "📋 Historia zapytań":
     history = load_history()
 
     if not history:
-        st.info("Brak historii. Uruchom scraper żeby zarejestrować pierwsze zapytania.")
+        st.markdown(
+            "<div style='text-align:center;padding:3.5rem 0;color:#767E8C;'>"
+            "<div style='font-size:2.5rem;'>📋</div>"
+            "<div style='margin-top:0.75rem;'>Brak historii — uruchom scraper żeby zarejestrować pierwsze zapytania</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
     else:
-        df_hist = pd.DataFrame([
-            {"Branża": k.split("|")[0].title(),
-             "Miasto": k.split("|")[1].title(),
-             "Data": v["data"],
-             "Leady zebrane": v["leady"]}
-            for k, v in sorted(history.items(), key=lambda x: x[1]["data"], reverse=True)
-        ])
+        items = sorted(history.items(), key=lambda x: x[1]["data"], reverse=True)
 
         hc1, hc2 = st.columns(2)
-        hc1.metric("Wykonanych zapytań", len(df_hist))
-        hc2.metric("Leadów łącznie z historii", df_hist["Leady zebrane"].sum())
+        hc1.metric("Wykonanych zapytań", len(items))
+        hc2.metric("Leadów łącznie z historii", sum(v["leady"] for _, v in items))
 
         st.divider()
-        st.dataframe(df_hist, use_container_width=True, height=500, hide_index=True)
+
+        for i, (k, v) in enumerate(items):
+            branza_h, miasto_h = k.split("|", 1)
+            with st.container(border=True):
+                hcol1, hcol2 = st.columns([4, 1])
+                with hcol1:
+                    st.markdown(f"**{branza_h.title()} · {miasto_h.title()}**")
+                    st.caption(f"{v['data']} · {v['leady']} firm znalezionych")
+                with hcol2:
+                    if st.button("🔄 Powtórz", key=f"hist_repeat_{i}", use_container_width=True):
+                        st.session_state["input_branza"] = branza_h
+                        st.session_state["input_miasto"] = miasto_h
+                        st.session_state["nav_page"] = PAGES[0]
+                        st.rerun()
 
         if st.button("🗑️ Wyczyść historię zapytań", use_container_width=True):
             os.remove(HISTORY_FILE)
@@ -1085,34 +1325,38 @@ elif page == "⚙️ Ustawienia":
     st.caption("Klucz API, integracja z CRM, trwałość danych oraz konfiguracja i test scoringu — wszystko w jednym miejscu.")
 
     with st.container(border=True):
-        st.markdown("#### 🔑 Google Places API")
+        st.markdown("#### Klucz Google Places API")
         if env_api_key:
-            st.success("✅ Klucz API wczytany ze zmiennej środowiskowej `GOOGLE_PLACES_API_KEY`")
+            st.markdown(pill_html("✓ Klucz ze zmiennej środowiskowej", "#1B8A5A", "#E6F7EF"), unsafe_allow_html=True)
         else:
-            def _save_manual_api_key():
-                save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
+            kcol1, kcol2 = st.columns([4, 1])
+            with kcol1:
+                st.text_input(
+                    "Google Places API Key", type="password", placeholder="AIza...",
+                    key="manual_api_key", label_visibility="collapsed",
+                )
+            with kcol2:
+                if st.button("Zapisz", type="primary", use_container_width=True, key="save_api_key_btn"):
+                    save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
+                    st.toast("✅ Klucz API zapisany")
 
-            st.text_input(
-                "Google Places API Key", type="password", placeholder="AIza...",
-                key="manual_api_key",
-                on_change=_save_manual_api_key,
-                help="Zapisywany trwale (GCS/config.json) — przetrwa restart kontenera. Na produkcji możesz zamiast tego ustawić zmienną środowiskową GOOGLE_PLACES_API_KEY.",
-            )
+            if st.session_state.get("manual_api_key"):
+                st.markdown(pill_html("✓ Klucz zapisany i aktywny", "#1B8A5A", "#E6F7EF"), unsafe_allow_html=True)
+            else:
+                st.markdown(pill_html("⚠️ Klucz nie jest ustawiony", "#B7791F", "#FEF3D7"), unsafe_allow_html=True)
+        st.caption("Klucz zapisywany w chmurze (GCS) — nie znika po odświeżeniu.")
 
     with st.container(border=True):
-        st.markdown("#### 🔗 Integracja z CRM")
+        st.markdown("#### Połączenie z CRM")
+        st.caption(f"CRM_API_BASE_URL: {CRM_API_BASE_URL if CRM_API_BASE_URL else 'Nieskonfigurowany'}")
         if CRM_ENABLED:
-            st.success("✅ Połączono z CRM — leady po scrapingu są automatycznie importowane")
-            st.caption(f"`CRM_API_BASE_URL` = {CRM_API_BASE_URL}")
+            st.markdown(pill_html("✓ CRM połączony", "#1B8A5A", "#E6F7EF"), unsafe_allow_html=True)
         else:
-            st.info("ℹ️ CRM nieskonfigurowany — leady zostają tylko lokalnie/w GCS. Ustaw `CRM_API_BASE_URL` i `SCRAPER_IMPORT_KEY`.")
-        if st.button("🔌 Test połączenia z CRM", key="crm_test_conn"):
+            st.markdown(pill_html("✗ CRM nieskonfigurowany", "#D64545", "#FCEAEA"), unsafe_allow_html=True)
+        if st.button("🔌 Test połączenia", key="crm_test_conn"):
             with st.spinner("Sprawdzam połączenie..."):
                 ok, msg = crm_test_connection()
-            if ok:
-                st.success(f"✅ {msg}")
-            else:
-                st.error(f"❌ {msg}")
+            st.toast(("✅ " if ok else "❌ ") + msg)
 
     with st.container(border=True):
         st.markdown("#### 📦 Trwałość danych i statystyki")
@@ -1122,13 +1366,13 @@ elif page == "⚙️ Ustawienia":
         gc3.metric("GCS bucket", GCS_BUCKET if GCS_BUCKET else "brak")
         st.caption("💡 **$200 free/miesiąc** ≈ 4 000 firm")
 
-    st.divider()
-    st.markdown("### 🧮 Scoring leadów")
-    st.caption("Wagi poniżej są w pełni edytowalne — wartości startowe to tylko punkt wyjścia, zmień je lub usuń reguły dowolnie.")
-
     current_weights = load_weights()
 
-    with st.expander("⚙️ Konfiguracja scoringu", expanded=True):
+    with st.container(border=True):
+      st.markdown("#### Konfiguracja scoringu")
+      st.caption("Wagi poniżej są w pełni edytowalne — wartości startowe to tylko punkt wyjścia, zmień je lub usuń reguły dowolnie.")
+
+      with st.expander("⚙️ Konfiguracja scoringu", expanded=True):
         st.markdown("**Status strony WWW** (dokładnie jeden z trzech stanów + osobny bonus za brak mobilności)")
         s1, s2, s3 = st.columns(3)
         with s1:
@@ -1190,7 +1434,7 @@ elif page == "⚙️ Ustawienia":
                 st.success("✅ Przywrócono wartości startowe.")
                 st.rerun()
 
-    with st.expander("🧪 Test scoringu", expanded=False):
+      with st.expander("🧪 Test scoringu", expanded=False):
         st.markdown("Sprawdź jak `score_website()` ocenia konkretną firmę, na aktualnie zapisanych wagach.")
 
         tc1, tc2, tc3 = st.columns([2, 1, 1])
