@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY scraper_core.py supabase_backend.py webhook_server.py .
+COPY scraper_core.py supabase_backend.py webhook_server.py ./
 
 # Cloud Run wstrzykuje port w zmiennej $PORT - domyślnie 8080
 ENV PORT=8080
