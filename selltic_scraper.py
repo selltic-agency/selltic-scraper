@@ -16,21 +16,22 @@ st.set_page_config(page_title="Selltic Scraper", page_icon="🔍", layout="wide"
 
 MATERIAL_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&display=swap');
 
 :root {
-    --md-primary: #1a73e8;
-    --md-primary-dark: #0b57d0;
+    --md-primary: #6750A4;
+    --md-primary-dark: #543F8E;
+    --md-primary-container: #EADDFF;
     --md-on-primary: #ffffff;
     --md-surface: #ffffff;
-    --md-bg: #f1f3f4;
-    --md-outline: #dadce0;
-    --md-on-surface: #202124;
-    --md-on-surface-variant: #5f6368;
+    --md-bg: #F5F0FC;
+    --md-outline: #E5DCF5;
+    --md-on-surface: #1D1B20;
+    --md-on-surface-variant: #49454F;
 }
 
 html, body, [class*="css"] {
-    font-family: 'Roboto', 'Segoe UI', sans-serif;
+    font-family: 'Roboto Flex', 'Segoe UI', sans-serif;
 }
 
 .stApp {
@@ -38,56 +39,77 @@ html, body, [class*="css"] {
 }
 
 h1, h2, h3, h4 {
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     color: var(--md-on-surface);
+    letter-spacing: -0.01em;
+}
+
+h1 {
+    font-size: 2.1rem !important;
 }
 
 section[data-testid="stSidebar"] {
     background-color: var(--md-surface);
-    border-right: 1px solid var(--md-outline);
+    border-right: none;
+    box-shadow: 2px 0 12px rgba(103, 80, 164, 0.08);
+    border-radius: 0 20px 20px 0;
 }
 
 .md-brand {
-    font-size: 1.25rem;
-    font-weight: 500;
-    color: var(--md-on-surface);
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--md-primary);
     padding: 0.25rem 0 0 0;
 }
 
+section[data-testid="stSidebar"] div[role="radiogroup"] {
+    gap: 0.25rem;
+}
+
 section[data-testid="stSidebar"] div[role="radiogroup"] label {
-    padding: 0.5rem 0.75rem;
-    border-radius: 20px;
+    padding: 0.65rem 1rem;
+    border-radius: 999px;
     margin-bottom: 0.15rem;
+    font-weight: 500;
+    transition: background-color 0.15s ease;
 }
 
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-    background-color: #f1f3f4;
+    background-color: var(--md-primary-container);
+}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
+    background-color: var(--md-primary-container);
+    font-weight: 700;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"] {
     background-color: var(--md-surface);
-    border-radius: 12px !important;
-    border: 1px solid var(--md-outline) !important;
-    box-shadow: 0 1px 2px rgba(60,64,67,.15), 0 1px 3px rgba(60,64,67,.10);
-    padding: 0.25rem 0.5rem;
+    border-radius: 16px !important;
+    border: none !important;
+    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12), 0 4px 12px rgba(103, 80, 164, 0.06);
+    padding: 0.5rem 0.75rem;
 }
 
 div[data-testid="stExpander"] {
     background-color: var(--md-surface);
-    border-radius: 12px;
-    border: 1px solid var(--md-outline);
+    border-radius: 16px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.10);
 }
 
 div.stButton > button, div.stDownloadButton > button {
-    border-radius: 20px;
-    font-weight: 500;
+    border-radius: 999px;
+    font-weight: 600;
     border: 1px solid var(--md-outline);
+    padding: 0.5rem 1.25rem;
 }
 
 div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
     background-color: var(--md-primary);
     border: none;
     color: var(--md-on-primary);
+    box-shadow: 0 2px 6px rgba(103, 80, 164, 0.35);
 }
 
 div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind="primary"]:hover {
@@ -96,15 +118,21 @@ div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind=
 
 div[data-testid="stMetric"] {
     background-color: var(--md-surface);
-    border-radius: 12px;
-    border: 1px solid var(--md-outline);
-    padding: 0.75rem 1rem;
+    border-radius: 16px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12);
+    padding: 1rem 1.25rem;
 }
 
 div[data-testid="stDataFrame"] {
-    border-radius: 12px;
+    border-radius: 16px;
     overflow: hidden;
-    border: 1px solid var(--md-outline);
+    border: none;
+    box-shadow: 0 1px 3px rgba(103, 80, 164, 0.12);
+}
+
+div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input, textarea {
+    border-radius: 12px !important;
 }
 </style>
 """
@@ -207,26 +235,30 @@ gcs_pull_all()
 
 
 # ── Scoring stron WWW ──────────────────────────────────────────────────────────
+# W pełni edytowalny z poziomu UI (zakładka Ustawienia → Konfiguracja scoringu):
+# trzy stany strony WWW + osobny bonus za brak mobilności, oraz otwarte listy
+# reguł punktowych dla liczby opinii i oceny Google.
 
 DEFAULT_WEIGHTS = {
     "brak_strony": 40,
-    "strona_nie_dziala": 35,
-    "brak_viewport": 10,
-    "brak_ssl": 8,
-    "wolna_strona_pkt": 5,
-    "wolna_strona_prog_sek": 3.0,
-    "uboga_tresc": 7,
-    "opinie_50_plus": 20,
-    "opinie_15_49": 12,
-    "opinie_1_14": 5,
-    "ocena_4_5_plus": 15,
-    "ocena_4_0_4_5": 10,
-    "ocena_3_0_4_0": 5,
+    "strona_nie_dziala": 30,
+    "strona_dziala": 0,
+    "niemobilna_bonus": 10,
+    "reguly_opinii": [
+        {"min_count": 1, "points": 5},
+        {"min_count": 15, "points": 12},
+        {"min_count": 50, "points": 20},
+    ],
+    "reguly_oceny": [
+        {"min_rating": 3.0, "points": 5},
+        {"min_rating": 4.0, "points": 10},
+        {"min_rating": 4.5, "points": 15},
+    ],
 }
 
 
 def load_weights() -> dict:
-    """Wczytuje wagi scoringu z pliku, a jeśli brak - zapisuje i zwraca domyślne."""
+    """Wczytuje wagi scoringu z pliku, a jeśli brak - zapisuje i zwraca domyślne (seed)."""
     if os.path.exists(WEIGHTS_FILE):
         try:
             with open(WEIGHTS_FILE, "r", encoding="utf-8") as f:
@@ -246,19 +278,34 @@ def save_weights(weights: dict):
     gcs_push(WEIGHTS_FILE)
 
 
+def _match_rule(rules: list[dict], value: float, threshold_key: str) -> tuple[int, dict | None]:
+    """Znajduje regułę z najwyższym progiem <= value. Zwraca (punkty, reguła) albo (0, None)."""
+    best = None
+    for rule in rules:
+        try:
+            threshold = float(rule[threshold_key])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if threshold <= value and (best is None or threshold > float(best[threshold_key])):
+            best = rule
+    if best is None:
+        return 0, None
+    return int(best["points"]), best
+
+
 def score_website(url: str, rating, review_count, weights: dict = None) -> tuple[int, str, dict]:
     """
-    Zwraca (lead_score 0-100, website_status, breakdown).
-    website_status: 'brak' | 'aktywna' | 'nie_dziala' | 'wolna'
+    Zwraca (lead_score, website_status, breakdown).
+    website_status: 'brak' | 'nie_dziala' | 'dziala'
+    breakdown: {klucz: {"punkty": int, "opis": str}}
     """
     w = weights if weights is not None else load_weights()
     breakdown = {}
 
-    # Komponent A: obecność strony (0-40 pkt)
     if not url:
-        breakdown["brak_strony"] = w["brak_strony"]
         website_status = "brak"
-        score_a = w["brak_strony"]
+        score_website_pts = int(w["brak_strony"])
+        breakdown["stan_strony"] = {"punkty": score_website_pts, "opis": "Brak strony/domeny"}
     else:
         # Uzupełnij brakujący schemat (np. "przyklad.pl" -> "https://przyklad.pl"),
         # inaczej requests rzuca MissingSchema i strona zawsze wygląda na "nie_dziala".
@@ -266,40 +313,24 @@ def score_website(url: str, rating, review_count, weights: dict = None) -> tuple
             url = "https://" + url
         try:
             resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
-            elapsed = resp.elapsed.total_seconds()
-            html = resp.text[:20000] if resp.ok else ""
             if not resp.ok:
-                breakdown["strona_nie_dziala"] = w["strona_nie_dziala"]
                 website_status = "nie_dziala"
-                score_a = w["strona_nie_dziala"]
+                score_website_pts = int(w["strona_nie_dziala"])
+                breakdown["stan_strony"] = {"punkty": score_website_pts, "opis": "Jest domena, ale nie działa"}
             else:
-                website_status = "wolna" if elapsed > w["wolna_strona_prog_sek"] else "aktywna"
-                score_a = 0
+                website_status = "dziala"
+                score_website_pts = int(w["strona_dziala"])
+                breakdown["stan_strony"] = {"punkty": score_website_pts, "opis": "Jest strona i działa"}
+                html = resp.text[:20000]
+                if 'name="viewport"' not in html.lower():
+                    bonus = int(w["niemobilna_bonus"])
+                    score_website_pts += bonus
+                    breakdown["niemobilna"] = {"punkty": bonus, "opis": "Strona niemobilna (brak meta viewport)"}
         except Exception:
-            breakdown["strona_nie_dziala"] = w["strona_nie_dziala"]
             website_status = "nie_dziala"
-            score_a = w["strona_nie_dziala"]
-            html, elapsed = "", None
+            score_website_pts = int(w["strona_nie_dziala"])
+            breakdown["stan_strony"] = {"punkty": score_website_pts, "opis": "Jest domena, ale nie działa (błąd połączenia)"}
 
-    # Komponent B: jakość istniejącej, działającej strony (0-25 pkt)
-    score_b = 0
-    if url and website_status in ("aktywna", "wolna"):
-        if 'name="viewport"' not in html.lower():
-            score_b += w["brak_viewport"]
-            breakdown["brak_viewport"] = w["brak_viewport"]
-        if url.startswith("http://"):
-            score_b += w["brak_ssl"]
-            breakdown["brak_ssl"] = w["brak_ssl"]
-        if elapsed and elapsed > w["wolna_strona_prog_sek"]:
-            score_b += w["wolna_strona_pkt"]
-            breakdown["wolna_strona"] = w["wolna_strona_pkt"]
-        if len(html) < 5000 or "<title" not in html.lower():
-            score_b += w["uboga_tresc"]
-            breakdown["uboga_tresc"] = w["uboga_tresc"]
-        score_b = min(score_b, 25)
-
-    # Komponent C: potencjał firmy wg opinii Google (0-35 pkt)
-    score_c = 0
     try:
         rc = int(review_count) if review_count not in (None, "") else 0
     except (ValueError, TypeError):
@@ -309,43 +340,20 @@ def score_website(url: str, rating, review_count, weights: dict = None) -> tuple
     except (ValueError, TypeError):
         rt = 0
 
-    if rc >= 50:
-        score_c += w["opinie_50_plus"]
-        breakdown["opinie"] = w["opinie_50_plus"]
-    elif rc >= 15:
-        score_c += w["opinie_15_49"]
-        breakdown["opinie"] = w["opinie_15_49"]
-    elif rc >= 1:
-        score_c += w["opinie_1_14"]
-        breakdown["opinie"] = w["opinie_1_14"]
-    if rt >= 4.5:
-        score_c += w["ocena_4_5_plus"]
-        breakdown["ocena"] = w["ocena_4_5_plus"]
-    elif rt >= 4.0:
-        score_c += w["ocena_4_0_4_5"]
-        breakdown["ocena"] = w["ocena_4_0_4_5"]
-    elif rt >= 3.0:
-        score_c += w["ocena_3_0_4_0"]
-        breakdown["ocena"] = w["ocena_3_0_4_0"]
+    opinie_pts, opinie_rule = _match_rule(w.get("reguly_opinii", []), rc, "min_count")
+    if opinie_rule is not None:
+        breakdown["opinie"] = {"punkty": opinie_pts, "opis": f"≥ {opinie_rule['min_count']} opinii"}
 
-    total = min(score_a + score_b + score_c, 100)
+    ocena_pts, ocena_rule = _match_rule(w.get("reguly_oceny", []), rt, "min_rating")
+    if ocena_rule is not None:
+        breakdown["ocena"] = {"punkty": ocena_pts, "opis": f"≥ {ocena_rule['min_rating']} oceny"}
+
+    total = score_website_pts + opinie_pts + ocena_pts
     return total, website_status, breakdown
 
 
-BREAKDOWN_LABELS = {
-    "brak_strony": "Brak strony WWW",
-    "strona_nie_dziala": "Strona nie odpowiada (timeout/błąd)",
-    "brak_viewport": "Brak tagu viewport (strona niemobilna)",
-    "brak_ssl": "Brak SSL (http://)",
-    "wolna_strona": "Wolno działająca strona (>{}s)".format(DEFAULT_WEIGHTS["wolna_strona_prog_sek"]),
-    "uboga_tresc": "Uboga treść / brak tytułu strony",
-    "opinie": "Potencjał wg liczby opinii Google",
-    "ocena": "Potencjał wg oceny Google",
-}
-
-
 def format_breakdown(breakdown: dict) -> list[str]:
-    return [f"+{pts} pkt: {BREAKDOWN_LABELS.get(key, key)}" for key, pts in breakdown.items()]
+    return [f"+{item['punkty']} pkt: {item['opis']}" for item in breakdown.values()]
 
 
 # ── Integracja z CRM (selltic-crm) ──────────────────────────────────────────────
@@ -355,6 +363,24 @@ def format_breakdown(breakdown: dict) -> list[str]:
 CRM_API_BASE_URL = os.environ.get("CRM_API_BASE_URL", "").rstrip("/")
 SCRAPER_IMPORT_KEY = os.environ.get("SCRAPER_IMPORT_KEY", "")
 CRM_ENABLED = bool(CRM_API_BASE_URL and SCRAPER_IMPORT_KEY)
+
+
+def crm_test_connection() -> tuple[bool, str]:
+    """Sprawdza połączenie z CRM wywołując existing-ids z pustą listą place_id. Zwraca (ok, opis)."""
+    if not CRM_ENABLED:
+        return False, "CRM nieskonfigurowany (brak CRM_API_BASE_URL / SCRAPER_IMPORT_KEY)."
+    try:
+        resp = requests.get(
+            f"{CRM_API_BASE_URL}/api/prospecting/existing-ids",
+            params={"place_ids": ""},
+            headers={"X-API-Key": SCRAPER_IMPORT_KEY},
+            timeout=10,
+        )
+        if resp.ok:
+            return True, f"Połączono z CRM ({CRM_API_BASE_URL})."
+        return False, f"CRM odpowiedział błędem: {resp.status_code}"
+    except Exception as e:
+        return False, f"Nie udało się połączyć z CRM: {e}"
 
 
 def crm_check_existing(place_ids: list[str]) -> set[str]:
@@ -538,9 +564,7 @@ PAGES = [
     "🚀 Scraper",
     "📦 Baza leadów",
     "📋 Historia zapytań",
-    "🧪 Test scoringu",
-    "⚙️ Konfiguracja scoringu",
-    "🔧 Ustawienia",
+    "⚙️ Ustawienia",
 ]
 
 with st.sidebar:
@@ -559,7 +583,7 @@ with st.sidebar:
         st.success("✅ CRM połączony")
     else:
         st.info("ℹ️ CRM nieskonfigurowany")
-    st.caption("Pełne ustawienia → zakładka 🔧 Ustawienia")
+    st.caption("Pełne ustawienia → sekcja ⚙️ Ustawienia")
 
 st.title("🔍 Selltic – Google Maps Scraper")
 
@@ -886,137 +910,9 @@ elif page == "📋 Historia zapytań":
             st.rerun()
 
 
-# ── Strona: Test scoringu ─────────────────────────────────────────────────────
-elif page == "🧪 Test scoringu":
-    st.markdown("Sprawdź jak `score_website()` ocenia konkretną firmę, zanim zaufasz algorytmowi przy masowym scrapingu.")
-
-    tc1, tc2, tc3 = st.columns([2, 1, 1])
-    with tc1:
-        test_url = st.text_input("Adres WWW (puste = symulacja braku strony)", key="test_scoring_url", placeholder="https://przyklad.pl")
-    with tc2:
-        test_rating = st.number_input("Ocena (0-5)", min_value=0.0, max_value=5.0, value=4.0, step=0.1, key="test_scoring_rating")
-    with tc3:
-        test_reviews = st.number_input("Liczba opinii", min_value=0, value=10, step=1, key="test_scoring_reviews")
-
-    if st.button("▶️ Uruchom scoring", type="primary", key="run_test_scoring"):
-        with st.spinner("Sprawdzam stronę..."):
-            score, status, breakdown = score_website(test_url.strip(), test_rating, test_reviews)
-
-        if score >= 70:
-            color, emoji = "green", "🟢"
-        elif score >= 40:
-            color, emoji = "orange", "🟡"
-        else:
-            color, emoji = "gray", "⚪"
-
-        st.markdown(f"## {emoji} :{color}[{score} / 100]")
-        st.markdown(f"**Website status:** `{status}`")
-
-        st.markdown("**Uzasadnienie punktacji:**")
-        for line in format_breakdown(breakdown):
-            st.markdown(f"- {line}")
-
-        with st.expander("Surowy breakdown (JSON)", expanded=False):
-            st.json(breakdown)
-
-
-# ── Strona: Konfiguracja scoringu ─────────────────────────────────────────────
-elif page == "⚙️ Konfiguracja scoringu":
-    st.markdown("Dostosuj wagi punktowe algorytmu scoringu. Zmiany zapisane tutaj obowiązują od razu w kolejnych scrapingach oraz w zakładce **Test scoringu**.")
-
-    current_weights = load_weights()
-
-    st.subheader("Komponent A — obecność strony (max 40 pkt)")
-    a1, a2 = st.columns(2)
-    with a1:
-        w_brak_strony = st.number_input("Brak strony WWW", min_value=0, max_value=40, value=int(current_weights["brak_strony"]), key="w_brak_strony")
-    with a2:
-        w_strona_nie_dziala = st.number_input("Strona nie odpowiada", min_value=0, max_value=40, value=int(current_weights["strona_nie_dziala"]), key="w_strona_nie_dziala")
-
-    st.subheader("Komponent B — jakość działającej strony (max 25 pkt)")
-    b1, b2 = st.columns(2)
-    with b1:
-        w_brak_viewport = st.number_input("Brak viewport (niemobilna)", min_value=0, max_value=25, value=int(current_weights["brak_viewport"]), key="w_brak_viewport")
-        w_wolna_strona_pkt = st.number_input("Wolna strona (punkty)", min_value=0, max_value=25, value=int(current_weights["wolna_strona_pkt"]), key="w_wolna_strona_pkt")
-    with b2:
-        w_brak_ssl = st.number_input("Brak SSL (http://)", min_value=0, max_value=25, value=int(current_weights["brak_ssl"]), key="w_brak_ssl")
-        w_uboga_tresc = st.number_input("Uboga treść / brak tytułu", min_value=0, max_value=25, value=int(current_weights["uboga_tresc"]), key="w_uboga_tresc")
-    w_wolna_strona_prog_sek = st.number_input("Próg 'wolnej strony' (sekundy)", min_value=0.5, max_value=30.0, value=float(current_weights["wolna_strona_prog_sek"]), step=0.5, key="w_wolna_strona_prog_sek")
-
-    st.subheader("Komponent C — potencjał wg opinii Google (max 35 pkt)")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Liczba opinii**")
-        w_opinie_50_plus = st.number_input("≥ 50 opinii", min_value=0, max_value=35, value=int(current_weights["opinie_50_plus"]), key="w_opinie_50_plus")
-        w_opinie_15_49 = st.number_input("≥ 15 opinii", min_value=0, max_value=35, value=int(current_weights["opinie_15_49"]), key="w_opinie_15_49")
-        w_opinie_1_14 = st.number_input("≥ 1 opinia", min_value=0, max_value=35, value=int(current_weights["opinie_1_14"]), key="w_opinie_1_14")
-    with c2:
-        st.markdown("**Ocena**")
-        w_ocena_4_5_plus = st.number_input("≥ 4.5", min_value=0, max_value=35, value=int(current_weights["ocena_4_5_plus"]), key="w_ocena_4_5_plus")
-        w_ocena_4_0_4_5 = st.number_input("≥ 4.0", min_value=0, max_value=35, value=int(current_weights["ocena_4_0_4_5"]), key="w_ocena_4_0_4_5")
-        w_ocena_3_0_4_0 = st.number_input("≥ 3.0", min_value=0, max_value=35, value=int(current_weights["ocena_3_0_4_0"]), key="w_ocena_3_0_4_0")
-
-    live_weights = {
-        "brak_strony": w_brak_strony,
-        "strona_nie_dziala": w_strona_nie_dziala,
-        "brak_viewport": w_brak_viewport,
-        "brak_ssl": w_brak_ssl,
-        "wolna_strona_pkt": w_wolna_strona_pkt,
-        "wolna_strona_prog_sek": w_wolna_strona_prog_sek,
-        "uboga_tresc": w_uboga_tresc,
-        "opinie_50_plus": w_opinie_50_plus,
-        "opinie_15_49": w_opinie_15_49,
-        "opinie_1_14": w_opinie_1_14,
-        "ocena_4_5_plus": w_ocena_4_5_plus,
-        "ocena_4_0_4_5": w_ocena_4_0_4_5,
-        "ocena_3_0_4_0": w_ocena_3_0_4_0,
-    }
-
-    st.divider()
-    bcol1, bcol2 = st.columns(2)
-    with bcol1:
-        if st.button("💾 Zapisz ustawienia", type="primary", use_container_width=True):
-            save_weights(live_weights)
-            st.success("✅ Nowe wagi zostały zapisane i są teraz aktywne — będą stosowane we wszystkich kolejnych scrapingach oraz w zakładce 'Test scoringu'.")
-    with bcol2:
-        if st.button("↩️ Przywróć domyślne", use_container_width=True):
-            save_weights(DEFAULT_WEIGHTS)
-            st.success("✅ Przywrócono domyślne wagi.")
-            st.rerun()
-
-    st.divider()
-    st.subheader("🔎 Podgląd na żywo")
-    st.caption("Przelicza się natychmiast po zmianie suwaków powyżej, przed zapisaniem.")
-
-    pc1, pc2, pc3 = st.columns([2, 1, 1])
-    with pc1:
-        preview_url = st.text_input("Adres WWW (puste = brak strony)", key="konfig_preview_url", placeholder="https://przyklad.pl")
-    with pc2:
-        preview_rating = st.number_input("Ocena (0-5)", min_value=0.0, max_value=5.0, value=4.0, step=0.1, key="konfig_preview_rating")
-    with pc3:
-        preview_reviews = st.number_input("Liczba opinii", min_value=0, value=10, step=1, key="konfig_preview_reviews")
-
-    preview_score, preview_status, preview_breakdown = score_website(
-        preview_url.strip(), preview_rating, preview_reviews, weights=live_weights
-    )
-
-    if preview_score >= 70:
-        p_color, p_emoji = "green", "🟢"
-    elif preview_score >= 40:
-        p_color, p_emoji = "orange", "🟡"
-    else:
-        p_color, p_emoji = "gray", "⚪"
-
-    st.markdown(f"### {p_emoji} :{p_color}[{preview_score} / 100] — status: `{preview_status}`")
-    for line in format_breakdown(preview_breakdown):
-        st.markdown(f"- {line}")
-    with st.expander("Surowy breakdown (JSON)", expanded=False):
-        st.json(preview_breakdown)
-
-
 # ── Strona: Ustawienia ─────────────────────────────────────────────────────────
-elif page == "🔧 Ustawienia":
-    st.caption("Konfiguracja klucza API, integracji z CRM oraz trwałości danych — pogrupowana w karty.")
+elif page == "⚙️ Ustawienia":
+    st.caption("Klucz API, integracja z CRM, trwałość danych oraz konfiguracja i test scoringu — wszystko w jednym miejscu.")
 
     with st.container(border=True):
         st.markdown("#### 🔑 Google Places API")
@@ -1036,6 +932,13 @@ elif page == "🔧 Ustawienia":
             st.caption(f"`CRM_API_BASE_URL` = {CRM_API_BASE_URL}")
         else:
             st.info("ℹ️ CRM nieskonfigurowany — leady zostają tylko lokalnie/w GCS. Ustaw `CRM_API_BASE_URL` i `SCRAPER_IMPORT_KEY`.")
+        if st.button("🔌 Test połączenia z CRM", key="crm_test_conn"):
+            with st.spinner("Sprawdzam połączenie..."):
+                ok, msg = crm_test_connection()
+            if ok:
+                st.success(f"✅ {msg}")
+            else:
+                st.error(f"❌ {msg}")
 
     with st.container(border=True):
         st.markdown("#### 📦 Trwałość danych i statystyki")
@@ -1044,3 +947,96 @@ elif page == "🔧 Ustawienia":
         gc2.metric("Wykonanych zapytań", len(load_history()))
         gc3.metric("GCS bucket", GCS_BUCKET if GCS_BUCKET else "brak")
         st.caption("💡 **$200 free/miesiąc** ≈ 4 000 firm")
+
+    st.divider()
+    st.markdown("### 🧮 Scoring leadów")
+    st.caption("Wagi poniżej są w pełni edytowalne — wartości startowe to tylko punkt wyjścia, zmień je lub usuń reguły dowolnie.")
+
+    current_weights = load_weights()
+
+    with st.expander("⚙️ Konfiguracja scoringu", expanded=True):
+        st.markdown("**Status strony WWW** (dokładnie jeden z trzech stanów + osobny bonus za brak mobilności)")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            w_brak_strony = st.number_input("Brak strony/domeny", min_value=0, value=int(current_weights["brak_strony"]), key="w_brak_strony")
+        with s2:
+            w_strona_nie_dziala = st.number_input("Jest domena, ale nie działa", min_value=0, value=int(current_weights["strona_nie_dziala"]), key="w_strona_nie_dziala")
+        with s3:
+            w_strona_dziala = st.number_input("Jest strona i działa", min_value=0, value=int(current_weights["strona_dziala"]), key="w_strona_dziala")
+        w_niemobilna_bonus = st.number_input(
+            "Bonus: niemobilna (brak <meta viewport>) — dolicza się do 'Jest strona i działa'",
+            min_value=0, value=int(current_weights["niemobilna_bonus"]), key="w_niemobilna_bonus"
+        )
+
+        st.markdown("**Reguły punktowe — liczba opinii**")
+        st.caption("Dla każdego leada stosowana jest reguła z najwyższym `min_count` <= liczba opinii. Dodawaj/usuwaj wiersze dowolnie.")
+        df_opinie_rules = st.data_editor(
+            pd.DataFrame(current_weights["reguly_opinii"]),
+            num_rows="dynamic", use_container_width=True, key="editor_reguly_opinii",
+            column_config={
+                "min_count": st.column_config.NumberColumn("min_count", min_value=0, step=1, required=True),
+                "points": st.column_config.NumberColumn("points", min_value=0, step=1, required=True),
+            },
+        )
+
+        st.markdown("**Reguły punktowe — ocena Google**")
+        st.caption("Dla każdego leada stosowana jest reguła z najwyższym `min_rating` <= ocena. Dodawaj/usuwaj wiersze dowolnie.")
+        df_ocena_rules = st.data_editor(
+            pd.DataFrame(current_weights["reguly_oceny"]),
+            num_rows="dynamic", use_container_width=True, key="editor_reguly_oceny",
+            column_config={
+                "min_rating": st.column_config.NumberColumn("min_rating", min_value=0.0, max_value=5.0, step=0.1, required=True),
+                "points": st.column_config.NumberColumn("points", min_value=0, step=1, required=True),
+            },
+        )
+
+        live_weights = {
+            "brak_strony": int(w_brak_strony),
+            "strona_nie_dziala": int(w_strona_nie_dziala),
+            "strona_dziala": int(w_strona_dziala),
+            "niemobilna_bonus": int(w_niemobilna_bonus),
+            "reguly_opinii": [
+                {"min_count": int(r["min_count"]), "points": int(r["points"])}
+                for r in df_opinie_rules.dropna().to_dict("records")
+            ],
+            "reguly_oceny": [
+                {"min_rating": float(r["min_rating"]), "points": int(r["points"])}
+                for r in df_ocena_rules.dropna().to_dict("records")
+            ],
+        }
+
+        bcol1, bcol2 = st.columns(2)
+        with bcol1:
+            if st.button("💾 Zapisz ustawienia", type="primary", use_container_width=True, key="save_scoring_weights"):
+                save_weights(live_weights)
+                st.success("✅ Nowe wagi zostały zapisane i są teraz aktywne — będą stosowane we wszystkich kolejnych scrapingach oraz w teście scoringu poniżej.")
+        with bcol2:
+            if st.button("↩️ Przywróć wartości startowe", use_container_width=True, key="reset_scoring_weights"):
+                save_weights(DEFAULT_WEIGHTS)
+                st.success("✅ Przywrócono wartości startowe.")
+                st.rerun()
+
+    with st.expander("🧪 Test scoringu", expanded=False):
+        st.markdown("Sprawdź jak `score_website()` ocenia konkretną firmę, na aktualnie zapisanych wagach.")
+
+        tc1, tc2, tc3 = st.columns([2, 1, 1])
+        with tc1:
+            test_url = st.text_input("Adres WWW (puste = symulacja braku strony)", key="test_scoring_url", placeholder="https://przyklad.pl")
+        with tc2:
+            test_rating = st.number_input("Ocena (0-5)", min_value=0.0, max_value=5.0, value=4.0, step=0.1, key="test_scoring_rating")
+        with tc3:
+            test_reviews = st.number_input("Liczba opinii", min_value=0, value=10, step=1, key="test_scoring_reviews")
+
+        if st.button("▶️ Uruchom scoring", type="primary", key="run_test_scoring"):
+            with st.spinner("Sprawdzam stronę..."):
+                score, status, breakdown = score_website(test_url.strip(), test_rating, test_reviews)
+
+            st.markdown(f"## 🏆 {score} pkt")
+            st.markdown(f"**Website status:** `{status}`")
+
+            st.markdown("**Uzasadnienie punktacji:**")
+            for line in format_breakdown(breakdown):
+                st.markdown(f"- {line}")
+
+            with st.expander("Surowy breakdown (JSON)", expanded=False):
+                st.json(breakdown)
