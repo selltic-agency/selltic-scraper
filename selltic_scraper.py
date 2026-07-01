@@ -1352,7 +1352,9 @@ elif page == "⚙️ Ustawienia":
                     verified = load_config().get("google_places_api_key", "") == new_key
                     print(f"[api_key debug] save attempted key_empty={not bool(new_key)} verified={verified}")
                     if verified:
-                        st.session_state["manual_api_key"] = new_key
+                        # session_state["manual_api_key"] already equals new_key (it's the
+                        # widget's own key) - reassigning it here is both redundant and illegal
+                        # once the widget has been instantiated in this run.
                         st.toast("✅ Klucz API zapisany")
                     else:
                         st.toast("⚠️ Nie udało się potwierdzić zapisu klucza (błąd GCS?) — spróbuj ponownie")
