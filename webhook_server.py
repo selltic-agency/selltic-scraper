@@ -61,6 +61,13 @@ def debug_routes():
     return {"routes": [getattr(r, "path", str(r)) for r in app.routes]}
 
 
+# TEMPORARY sanity-check route with a path unlikely to collide with any
+# external cache/CDN/edge rule — remove alongside /debug-routes.
+@app.get("/ping-test-12345")
+def ping_test_12345():
+    return {"pong": True}
+
+
 @app.post("/webhook/scrape")
 def webhook_scrape(
     payload: ScrapeWebhookRequest,
