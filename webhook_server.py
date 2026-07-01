@@ -48,24 +48,9 @@ class ScrapeWebhookRequest(BaseModel):
     job_ids: list[str]
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/health-check")
+def health_check():
     return {"status": "ok"}
-
-
-# TEMPORARY DEBUG ROUTE — remove once the /healthz 404 issue is confirmed fixed.
-# Lets us verify from outside exactly which routes are registered in the
-# running container, to rule out a stale deploy vs. an infra-level interception.
-@app.get("/debug-routes")
-def debug_routes():
-    return {"routes": [getattr(r, "path", str(r)) for r in app.routes]}
-
-
-# TEMPORARY sanity-check route with a path unlikely to collide with any
-# external cache/CDN/edge rule — remove alongside /debug-routes.
-@app.get("/ping-test-12345")
-def ping_test_12345():
-    return {"pong": True}
 
 
 @app.post("/webhook/scrape")

@@ -85,7 +85,7 @@ po stronie CRM i stara appka Streamlit nadal działają równolegle, do potwierd
 ### 6.1 Nowe pliki
 - `scraper_core.py` — logika scrapowania/scoringu bez Streamlit (współdzielona)
 - `supabase_backend.py` — klient Supabase + wczytywanie `scraper_config`
-- `webhook_server.py` — FastAPI, endpoint `POST /webhook/scrape` + `GET /healthz`
+- `webhook_server.py` — FastAPI, endpoint `POST /webhook/scrape` + `GET /health-check`
 - `Dockerfile.webhook`, `cloudbuild.webhook.yaml` — build/deploy tej usługi
 
 ### 6.2 Deploy jako osobny serwis Cloud Run
