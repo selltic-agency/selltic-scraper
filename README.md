@@ -135,3 +135,53 @@ czas builda), można to później rozdzielić na `requirements-streamlit.txt` /
 - Klucz Google Places API nadal wpisujesz ręcznie w sidebarze appki przy każdej sesji
   (tak jak w oryginalnym skrypcie) — jeśli chcesz, mogę to też przepiąć na zmienną
   środowiskową, żeby nie trzeba było go wklejać za każdym razem.
+
+---
+
+## 7. Rozwiązywanie problemów (headless webhook)
+
+Trzy realne awarie zaobserwowane w produkcji i co je powoduje. Część poprawek
+jest w kodzie, część wymaga sprawdzenia KONFIGURACJI usługi Cloud Run.
+
+### 7.1 Zadanie utknęło w „Oczekuje” (pending) i nigdy nie ruszyło
+Objaw: status zadania nie zmienia się na running/done/error nawet po kilku minutach.
+- **Kod (zrobione)**: CRM ma bezpiecznik (`/api/scraper/reap-stale`) — zadanie
+  wiszące w pending/running ponad 10 min jest automatycznie oznaczane jako błąd
+  z czytelnym komunikatem (uruchamiany przy wejściu w zakładkę Scraper i przy
+  „Odśwież”). Dodatkowo, gdy webhook odpowie błędem, `/api/scraper/start` od razu
+  oznacza zadania jako błąd zamiast zostawiać je w pending.
+- **Konfiguracja (do sprawdzenia ręcznie)**: usługa `selltic-scraper-webhook`
+  MUSI mieć **„CPU is always allocated”** (`--no-cpu-throttling`) — bez tego
+  Cloud Run zamraża CPU zaraz po odpowiedzi 202 i praca w tle (BackgroundTasks)
+  nigdy się nie kończy. Sprawdź to na AKTYWNEJ rewizji usługi (Cloud Run →
+  usługa → Revisions → kolumna CPU allocation), nie tylko w cloudbuild.
+
+### 7.2 Błąd „Nieprawidłowe zapytanie do Google” dla poprawnego zapytania
+Objaw: np. „fizjoterapeuta Wrocław” kończy się błędem INVALID_REQUEST, mimo że
+słowo kluczowe i lokalizacja są poprawne.
+- **Przyczyna**: `next_page_token` (stronicowanie Google Places) staje się aktywny
+  z ZMIENNYM opóźnieniem. Zapytanie o kolejną stronę zbyt wcześnie zwraca
+  INVALID_REQUEST. Zapytania z wieloma wynikami (jak fizjoterapeuci we Wrocławiu)
+  wchodzą w stronicowanie i trafiały na ten błąd.
+- **Kod (zrobione)**: `scraper_core.text_search_page()` ponawia pobranie strony
+  z tokenem z narastającym odstępem (2/3/4/5/6 s). Jeśli token i tak się nie
+  aktywuje, kończymy stronicowanie zachowując dotychczasowe wyniki (zadanie =
+  sukces), a nie błąd. INVALID_REQUEST na 1. stronie (bez tokenu) dalej jest
+  traktowany jako realny błąd zapytania.
+
+### 7.3 Błąd „403 … storage.googleapis.com …” (kopia zapasowa GCS)
+Objaw: zadanie kończy się błędem z URL-em uploadu do bucketa, np.
+`selltic-scraper-webhook`.
+- **Kod (zrobione)**: kopia GCS jest best-effort — status „done” ustawiamy PRZED
+  próbą backupu, a błąd zapisu do GCS jest tylko logowany i NIE psuje udanego
+  zadania ani `results_count`/statusu zapisanych już w Supabase.
+- **Konfiguracja (do sprawdzenia ręcznie) — prawdopodobna prawdziwa przyczyna 403**:
+  1. Zmienna `GCS_BUCKET` na usłudze webhooka wygląda na ustawioną na NAZWĘ USŁUGI
+     Cloud Run (`selltic-scraper-webhook`), a nie na nazwę realnego bucketa
+     (`selltic-scraper-data` z pkt. 2 README). Sprawdź w Cloud Run → Variables
+     i ustaw `GCS_BUCKET=selltic-scraper-data` (lub jakikolwiek bucket, który
+     faktycznie istnieje w Cloud Storage).
+  2. Konto usługi (runtime service account) tej rewizji musi mieć rolę
+     **Storage Object Admin** (lub Object Creator) NA TYM buckecie.
+  Backup nie jest krytyczny — poprawa tego przywróci kopie CSV, ale leady i tak
+  lądują w Supabase niezależnie od GCS.
