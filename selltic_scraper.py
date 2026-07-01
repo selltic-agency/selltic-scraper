@@ -826,9 +826,17 @@ def render_leads_rows(rows: list[dict], key_prefix: str):
 
 env_api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 app_config = load_config()
-if "manual_api_key" not in st.session_state:
+# Single source of truth: session_state["manual_api_key"] is authoritative once set.
+# Self-heal only if session_state is missing/empty but config.json (GCS/local) now has a key -
+# this covers a fresh session/container that hasn't picked up a key saved from another session.
+if "manual_api_key" not in st.session_state or (
+    not st.session_state.get("manual_api_key") and app_config.get("google_places_api_key")
+):
     st.session_state["manual_api_key"] = app_config.get("google_places_api_key", "")
 api_key = env_api_key if env_api_key else st.session_state.get("manual_api_key", "")
+
+_api_key_source = "env" if env_api_key else ("session_state" if st.session_state.get("manual_api_key") else "config/empty")
+print(f"[api_key debug] source={_api_key_source} empty={not bool(api_key)}")
 
 PAGES = [
     "🚀 Scraper",
@@ -1337,8 +1345,17 @@ elif page == "⚙️ Ustawienia":
                 )
             with kcol2:
                 if st.button("Zapisz", type="primary", use_container_width=True, key="save_api_key_btn"):
-                    save_config({**app_config, "google_places_api_key": st.session_state["manual_api_key"]})
-                    st.toast("✅ Klucz API zapisany")
+                    new_key = st.session_state["manual_api_key"].strip()
+                    save_config({**app_config, "google_places_api_key": new_key})
+                    # Verify the write actually landed (guards against a silent GCS write failure
+                    # that would otherwise leave session_state and the persisted config out of sync).
+                    verified = load_config().get("google_places_api_key", "") == new_key
+                    print(f"[api_key debug] save attempted key_empty={not bool(new_key)} verified={verified}")
+                    if verified:
+                        st.session_state["manual_api_key"] = new_key
+                        st.toast("✅ Klucz API zapisany")
+                    else:
+                        st.toast("⚠️ Nie udało się potwierdzić zapisu klucza (błąd GCS?) — spróbuj ponownie")
 
             if st.session_state.get("manual_api_key"):
                 st.markdown(pill_html("✓ Klucz zapisany i aktywny", "#1B8A5A", "#E6F7EF"), unsafe_allow_html=True)
