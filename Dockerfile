@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY selltic_scraper.py .
+COPY selltic_scraper.py scraper_core.py .
 
 # Cloud Run wstrzykuje port w zmiennej $PORT - domyślnie 8080
 ENV PORT=8080

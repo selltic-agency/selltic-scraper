@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY scraper_core.py supabase_backend.py webhook_server.py .
+
+# Cloud Run wstrzykuje port w zmiennej $PORT - domyślnie 8080
+ENV PORT=8080
+EXPOSE 8080
+
+# UWAGA: wdróż tę usługę z "CPU always allocated" (lub --min-instances=1),
+# inaczej Cloud Run może stopować CPU zaraz po wysłaniu odpowiedzi 202
+# i przetwarzanie w tle (BackgroundTasks) się nie dokończy.
+CMD uvicorn webhook_server:app --host 0.0.0.0 --port ${PORT}
