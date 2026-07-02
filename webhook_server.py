@@ -67,6 +67,12 @@ def webhook_scrape(
     if not payload.job_ids:
         raise HTTPException(status_code=400, detail="job_ids nie może być puste")
 
+    # Log KAŻDEGO przyjętego wywołania — dzięki temu w logach Cloud Run widać, czy
+    # POST /webhook/scrape dla danego batch_id/job_id w ogóle dotarł (kluczowe przy
+    # diagnozie zadań utkniętych w "pending": czy webhook nie doszedł, czy odszedł
+    # w tło i tam padł).
+    print(f"[webhook_scrape] Otrzymano batch_id={payload.batch_id} job_ids={payload.job_ids}")
+
     db = get_supabase()
     res = db.table("scrape_jobs").select("id,status").in_("id", payload.job_ids).execute()
     found = {row["id"]: row["status"] for row in (res.data or [])}
@@ -84,6 +90,7 @@ def webhook_scrape(
     if accepted:
         background_tasks.add_task(process_batch, accepted)
 
+    print(f"[webhook_scrape] batch_id={payload.batch_id} accepted={accepted} rejected={rejected}")
     return {"accepted": accepted, "rejected": rejected}
 
 
