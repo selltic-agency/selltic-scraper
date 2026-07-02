@@ -7,13 +7,22 @@
 # after the response is sent — without this flag Cloud Run may freeze the
 # instance's CPU right after the response and the background work will stall.
 #
+# --min-instances=1 keeps one warm instance so the CRM's webhook call never
+# hits a cold start. Cold starts were the root cause of jobs stranded in
+# "pending": the first call after idle could exceed the CRM's request timeout
+# and fail silently, while the next (warm) call succeeded.
+#
+# The deployed service runs in europe-west1 (keep _REGION in sync with the
+# actual Cloud Run region — a mismatch makes `gcloud run services describe`
+# report the service as missing). Artifact Registry uses the same region.
+#
 # TODO: fill in YOUR_PROJECT_ID (and adjust _REGION/_SERVICE below if needed).
 substitutions:
-  _REGION: europe-central2
+  _REGION: europe-west1
   _SERVICE: selltic-scraper-webhook
 
 images:
-  - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
 
 steps:
   - name: "gcr.io/cloud-builders/docker"
@@ -22,13 +31,13 @@ steps:
       - "-f"
       - "Dockerfile.webhook"
       - "-t"
-      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "${_REGION}-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
       - "."
 
   - name: "gcr.io/cloud-builders/docker"
     args:
       - "push"
-      - "europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "${_REGION}-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
 
   - name: "gcr.io/google-cloud-sdk/slim"
     entrypoint: "gcloud"
@@ -36,10 +45,11 @@ steps:
       - "run"
       - "deploy"
       - "${_SERVICE}"
-      - "--image=europe-central2-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
+      - "--image=${_REGION}-docker.pkg.dev/YOUR_PROJECT_ID/${_SERVICE}/${_SERVICE}:${SHORT_SHA}"
       - "--region=${_REGION}"
       - "--platform=managed"
       - "--no-cpu-throttling"
+      - "--min-instances=1"
       - "--allow-unauthenticated"
 
 options:
