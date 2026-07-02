@@ -137,6 +137,38 @@ def _set_progress(db, job_id: str, **fields):
     db.table("scrape_jobs").update(fields).eq("id", job_id).execute()
 
 
+def _existing_place_ids(db, owner_id: str) -> set[str]:
+    """Zbiór place_id już obecnych w scraped_leads dla tego właściciela.
+
+    Służy do rozróżnienia leadów NOWYCH od tych, które upsert (on_conflict=
+    owner,place_id) jedynie zaktualizuje — bo dwa podobne zapytania (np.
+    „fizjoterapia” vs „fizjoterapeuta”) często zwracają te same fizyczne firmy.
+    Ładujemy raz na starcie zadania (zadania w paczce lecą sekwencyjnie, więc
+    lead dodany przez wcześniejsze zadanie policzy się jako „już w bazie” w
+    kolejnym). Paginujemy, bo PostgREST domyślnie zwraca max 1000 wierszy.
+    """
+    known: set[str] = set()
+    page_size = 1000
+    start = 0
+    while True:
+        res = (
+            db.table("scraped_leads")
+            .select("place_id")
+            .eq("owner", owner_id)
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        rows = res.data or []
+        for r in rows:
+            pid = r.get("place_id")
+            if pid:
+                known.add(pid)
+        if len(rows) < page_size:
+            break
+        start += page_size
+    return known
+
+
 def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, delay_s: float, owner_id: str):
     job_res = db.table("scrape_jobs").select("*").eq("id", job_id).single().execute()
     job = job_res.data
@@ -148,6 +180,8 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
         status="running",
         started_at=datetime.now(timezone.utc).isoformat(),
         results_count=0,
+        new_count=0,
+        existing_count=0,
         current_step="Rozpoczynanie…",
     )
 
@@ -158,8 +192,16 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
     location = job["location"]
     query = f"{keyword} {location}"
 
-    rows = []          # zbierane tylko do kopii GCS na końcu
-    count = 0          # ile leadów faktycznie zapisano (dla results_count na żywo)
+    # Zbiór place_id już znanych temu właścicielowi — pozwala rozróżnić leady
+    # NOWE od tych, które upsert tylko odświeży („już w bazie”). Aktualizowany
+    # w trakcie, żeby ten sam place_id widziany dwa razy w jednym zadaniu nie
+    # policzył się dwukrotnie jako nowy.
+    known_place_ids = _existing_place_ids(db, owner_id)
+
+    rows = []            # zbierane tylko do kopii GCS na końcu
+    count = 0            # ile wyników z API przetworzono (results_count na żywo)
+    new_count = 0        # ile z nich to NOWE leady (wcześniej nieznane)
+    existing_count = 0   # ile już istniało dla tego właściciela (tylko odświeżone)
     next_token = None
     for page_nr in range(max_strony):
         _set_progress(db, job_id, current_step=f"Pobieranie strony {page_nr + 1}/{max_strony}")
@@ -231,12 +273,23 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
                     "scraped_at": datetime.now(timezone.utc).isoformat(),
                 }
 
+                # Rozróżnij NOWY lead od aktualizacji istniejącego PRZED zapisem
+                # (upsert nie mówi, czy wstawił czy nadpisał). Ten sam place_id
+                # widziany ponownie w tym zadaniu nie liczy się drugi raz.
+                is_new = pid not in known_place_ids
+                if is_new:
+                    known_place_ids.add(pid)
+
                 # Zapis od razu po zescrapowaniu — lead pojawia się w CRM na żywo,
                 # a nie dopiero po zakończeniu całego zadania.
                 db.table("scraped_leads").upsert([row], on_conflict="owner,place_id").execute()
                 rows.append(row)
                 count += 1
-                _set_progress(db, job_id, results_count=count)
+                if is_new:
+                    new_count += 1
+                else:
+                    existing_count += 1
+                _set_progress(db, job_id, results_count=count, new_count=new_count, existing_count=existing_count)
             except Exception as place_err:  # noqa: BLE001
                 print(f"[process_job] Pominięto firmę w zadaniu {job_id}: {place_err}")
                 continue
@@ -252,6 +305,8 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
         status="done",
         completed_at=datetime.now(timezone.utc).isoformat(),
         results_count=count,
+        new_count=new_count,
+        existing_count=existing_count,
         current_step=None,
     )
 
