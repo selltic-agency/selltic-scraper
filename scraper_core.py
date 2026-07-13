@@ -126,6 +126,12 @@ def score_website(url: str, rating, review_count, weights: dict) -> tuple[int, s
         breakdown["ocena"] = {"punkty": ocena_pts, "opis": f"≥ {ocena_rule['min_rating']} oceny"}
 
     total = score_website_pts + opinie_pts + ocena_pts
+    # Wynik trzymamy w zakresie 0–100. Wagi są w pełni edytowalne z UI, więc ich
+    # suma potrafi wyjść poza ten przedział, a kolumny lead_score w CRM
+    # (prospects/deals) oraz cała prezentacja („X/100", kolory progów) zakładają
+    # 0–100. Bez przycięcia wynik > 100 przechodził przez scraped_leads (bez
+    # ograniczenia), a wywracał się dopiero przy „Przenieś do Prospectingu".
+    total = max(0, min(100, total))
     return total, website_status, breakdown
 
 

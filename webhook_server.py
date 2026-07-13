@@ -256,6 +256,13 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
     if not job:
         return
 
+    # Scoring jest OPCJONALNY per paczka (scrape_jobs.scoring_enabled, dziedziczone
+    # ze scrape_batches). Wyłączony → w ogóle nie sprawdzamy stron i nie liczymy
+    # wyniku: leady z tego zadania mają score/breakdown/website_status = NULL i to
+    # jest stan POPRAWNY (nie błąd). Domyślnie true (kolumna not null default true;
+    # .get z domyślną wartością chroni przed danymi sprzed migracji).
+    scoring_enabled = bool(job.get("scoring_enabled", True))
+
     _set_progress(
         db, job_id,
         status="running",
@@ -332,7 +339,14 @@ def process_job(db, job_id: str, api_key: str, weights: dict, max_strony: int, d
                 rating = details.get("rating", place.get("rating"))
                 review_count = details.get("user_ratings_total", place.get("user_ratings_total"))
                 business_status = details.get("business_status") or place.get("business_status") or None
-                score, website_status, breakdown = score_website(website, rating, review_count, weights)
+
+                # Scoring wyłączony dla tej paczki → pomijamy sprawdzenie strony
+                # i cały scoring. Lead trafia do bazy bez wyniku (NULL), szybciej
+                # i bez zapytań HTTP do stron firm.
+                if scoring_enabled:
+                    score, website_status, breakdown = score_website(website, rating, review_count, weights)
+                else:
+                    score, website_status, breakdown = None, None, None
 
                 row = {
                     "owner": owner_id,
