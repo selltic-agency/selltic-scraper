@@ -118,6 +118,31 @@ niepotrzebnych zależności drugiej usługi. Jeśli to problem (rozmiar obrazu,
 czas builda), można to później rozdzielić na `requirements-streamlit.txt` /
 `requirements-webhook.txt`.
 
+### 6.4 Sterowanie paczką: Pauza / Stop / Wznów
+
+Zadania jednego kliknięcia „Rozpocznij scrapowanie” tworzą **paczkę**
+(`scrape_batches`, jeden wiersz na `batch_id`) ze statusem
+`running | paused | stopped | completed`. `process_batch` czyta ten status
+z bazy **PRZED każdym zadaniem** (`_batch_status`), dzięki czemu sterowanie z
+CRM realnie wpływa na pracę backendu, a nie tylko na UI:
+
+- **Pauza** (`/api/scraper/pause` → `status='paused'`): pętla przerywa się przed
+  kolejnym zadaniem; zadania `pending` zostają nietknięte (postęp nie ginie).
+  Zadanie aktualnie `running` dokańcza się normalnie.
+- **Wznów** (`/api/scraper/resume` → `status='running'` + ponowny webhook z
+  pozostałymi `pending`): backend podejmuje pracę od pierwszego wciąż `pending`.
+  Webhook akceptuje **wyłącznie** zadania `pending`, więc dosłanie tej samej
+  listy nie przetworzy ponownie `done/error/canceled`.
+- **Stop** (`/api/scraper/stop` → `status='stopped'`): pozostałe `pending`
+  przechodzą w `canceled` (NIEODWRACALNE — leady już znalezione zostają).
+  Pętla, widząc `stopped`, anuluje resztę i kończy.
+
+Wznawialność rozwiązuje też starą klasę awarii „utknięte w pending”: jeśli
+instancja Cloud Run zostanie zamrożona/zrecyklowana w trakcie paczki, wystarczy
+ponowny webhook (lub Wznów), by podjąć zadania od pierwszego `pending` — nie
+trzeba zaczynać od zera. Watchdog CRM (`/api/scraper/reap-stale`) nadal domyka
+zadania i paczki, których nikt nie wznowi.
+
 ---
 
 ## Dodatkowe uwagi
