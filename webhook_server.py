@@ -74,27 +74,90 @@ def webhook_scrape(
     print(f"[webhook_scrape] Otrzymano batch_id={payload.batch_id} job_ids={payload.job_ids}")
 
     db = get_supabase()
+
+    # Paczka musi być 'running' — jeśli została wstrzymana/zatrzymana zanim
+    # webhook wystartował, nie dispatchujemy (pauza/stop mają realnie wygaszać
+    # pracę, a nie ją wznawiać przez wyścig z tym wywołaniem).
+    batch_status = _batch_status(db, payload.batch_id)
+    if batch_status not in ("running", None):
+        print(f"[webhook_scrape] batch_id={payload.batch_id} status={batch_status} → pomijam dispatch")
+        return {"accepted": [], "rejected": [{"batch": payload.batch_id, "reason": batch_status}]}
+
     res = db.table("scrape_jobs").select("id,status").in_("id", payload.job_ids).execute()
     found = {row["id"]: row["status"] for row in (res.data or [])}
 
+    # Akceptujemy WYŁĄCZNIE zadania 'pending'. Dzięki temu wznowienie (dosyłka tej
+    # samej listy) nie przetworzy ponownie zadań już done/error/canceled, a dwa
+    # wywołania na tę samą paczkę nie zdublują pracy zadania, które ktoś już zajął.
     accepted, rejected = [], []
     for job_id in payload.job_ids:
         status = found.get(job_id)
         if status is None:
             rejected.append({"job_id": job_id, "reason": "not found"})
-        elif status == "running":
-            rejected.append({"job_id": job_id, "reason": "already running"})
+        elif status != "pending":
+            rejected.append({"job_id": job_id, "reason": f"status={status}"})
         else:
             accepted.append(job_id)
 
     if accepted:
-        background_tasks.add_task(process_batch, accepted)
+        background_tasks.add_task(process_batch, payload.batch_id, accepted)
 
     print(f"[webhook_scrape] batch_id={payload.batch_id} accepted={accepted} rejected={rejected}")
     return {"accepted": accepted, "rejected": rejected}
 
 
-def process_batch(job_ids: list[str]):
+def _batch_status(db, batch_id: str) -> str | None:
+    """Bieżący status paczki: 'running' | 'paused' | 'stopped' | 'completed' | None.
+
+    Czytany świeżo z bazy PRZED każdym zadaniem — to on sprawia, że pauza/stop
+    z CRM realnie wstrzymują pracę, zamiast tylko chować ją w UI. None = brak
+    wiersza paczki (stare dane sprzed migracji) → traktujemy jak 'running'.
+    """
+    try:
+        res = db.table("scrape_batches").select("status").eq("id", batch_id).single().execute()
+        return (res.data or {}).get("status")
+    except Exception as e:  # noqa: BLE001 — brak wiersza / chwilowy błąd nie może wywrócić pętli
+        print(f"[_batch_status] Nie udało się odczytać statusu paczki {batch_id}: {e}")
+        return None
+
+
+def _cancel_remaining(db, job_ids: list[str]):
+    """STOP: anuluj pozostałe zadania paczki, które jeszcze nie ruszyły ('pending')."""
+    if not job_ids:
+        return
+    try:
+        db.table("scrape_jobs").update({
+            "status": "canceled",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "current_step": None,
+        }).in_("id", job_ids).eq("status", "pending").execute()
+    except Exception as e:  # noqa: BLE001
+        print(f"[_cancel_remaining] Nie udało się anulować zadań: {e}")
+
+
+def _finalize_batch_if_done(db, batch_id: str):
+    """Ustaw paczkę na 'completed', gdy nie ma już zadań pending/running i jest
+    wciąż 'running' (nie nadpisujemy paused/stopped). Idempotentne."""
+    try:
+        res = (
+            db.table("scrape_jobs")
+            .select("id", count="exact")
+            .eq("batch_id", batch_id)
+            .in_("status", ["pending", "running"])
+            .execute()
+        )
+        remaining = res.count if res.count is not None else len(res.data or [])
+        if remaining and remaining > 0:
+            return
+        db.table("scrape_batches").update({
+            "status": "completed",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", batch_id).eq("status", "running").execute()
+    except Exception as e:  # noqa: BLE001
+        print(f"[_finalize_batch_if_done] {batch_id}: {e}")
+
+
+def process_batch(batch_id: str, job_ids: list[str]):
     db = get_supabase()
 
     # Setup (owner, config, klucz API) PRZED pętlą — jeśli tu poleci wyjątek
@@ -115,12 +178,26 @@ def process_batch(job_ids: list[str]):
                 "error_message": f"Nie udało się przygotować scrapowania: {str(e)[:1500]}",
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "current_step": None,
-            }).in_("id", job_ids).execute()
+            }).in_("id", job_ids).eq("status", "pending").execute()
         except Exception as e2:
             print(f"[process_batch] Nie udało się zapisać błędu setupu: {e2}")
         return
 
-    for job_id in job_ids:
+    # Pętla sterowana statusem paczki: PRZED każdym zadaniem sprawdzamy świeży
+    # status. 'paused' → przerywamy, pozostawiając resztę 'pending' (wznowienie
+    # dosłać je ponownie). 'stopped' → anulujemy pozostałe pending i kończymy.
+    # Dzięki temu pauza/stop realnie wstrzymują pracę, a pętla jest wznawialna:
+    # ponowne wywołanie webhooka podejmie zadania od pierwszego wciąż 'pending'.
+    for idx, job_id in enumerate(job_ids):
+        control = _batch_status(db, batch_id)
+        if control == "paused":
+            print(f"[process_batch] batch_id={batch_id} PAUZA — przerywam przed zadaniem {job_id}")
+            return
+        if control == "stopped":
+            print(f"[process_batch] batch_id={batch_id} STOP — anuluję pozostałe {len(job_ids) - idx} zadań")
+            _cancel_remaining(db, job_ids[idx:])
+            return
+
         try:
             process_job(db, job_id, api_key, weights, max_strony, delay_s, owner_id)
         except Exception as e:
@@ -130,6 +207,10 @@ def process_batch(job_ids: list[str]):
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "current_step": None,
             }).eq("id", job_id).execute()
+
+    # Paczka przerobiona do końca (bez pauzy/stopu) — domknij ją, jeśli nie ma
+    # już żadnych zadań pending/running i wciąż jest 'running'.
+    _finalize_batch_if_done(db, batch_id)
 
 
 def _set_progress(db, job_id: str, **fields):
